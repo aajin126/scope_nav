@@ -521,8 +521,7 @@ class so_scope(nn.Module):
                                         out_channels=1,
                                         kernel_size=1, 
                                         stride=1), 
-                                        nn.Sigmoid()
-                                        )
+                                        nn.Sigmoid())
 
         self._encoder = VAE_Encoder(num_hiddens//4)
 

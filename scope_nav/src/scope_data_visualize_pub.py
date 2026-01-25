@@ -47,7 +47,7 @@ class ScopeImageVisualizer:
         # Initialize ROS objects
         self.scope_sub = rospy.Subscriber('scope_output_data', ScopeOutputData, self.scope_callback)
         self.prediction_pub = rospy.Publisher('prediction_img', Image, queue_size=10)
-        self.uncertainty_pub = rospy.Publisher('uncertainty_img', Image, queue_size=10)
+        #self.uncertainty_pub = rospy.Publisher('uncertainty_img', Image, queue_size=10)
 
     # Callback function for the path subscriber
     def scope_callback(self, vae_msg):
@@ -58,14 +58,14 @@ class ScopeImageVisualizer:
         scope_prediction = np.flip(scope_prediction)#.transpose()) #.reshape(80,80,1)
         prediction_img = cv2.applyColorMap(np.uint8(scope_prediction*255), cv2.COLORMAP_BONE)#, get_mpl_colormap('PuRd')) # 'PuRd', 'binary', 'gist_heat_r'
         # uncertainty:
-        scope_uncertainty = np.array(scope_data[64*64*2:])
-        scope_uncertainty = scope_uncertainty.reshape(64, 64)
-        scope_uncertainty = np.flip(scope_uncertainty)#.transpose()) #.reshape(80,80,1)
-        uncertainty_img = cv2.applyColorMap(np.uint8(scope_uncertainty*255), cv2.COLORMAP_BONE)#, get_mpl_colormap('PuRd')) # 'PuRd', 'binary', 'gist_heat_r'
+        # scope_uncertainty = np.array(scope_data[64*64*2:])
+        # scope_uncertainty = scope_uncertainty.reshape(64, 64)
+        # scope_uncertainty = np.flip(scope_uncertainty)#.transpose()) #.reshape(80,80,1)
+        # uncertainty_img = cv2.applyColorMap(np.uint8(scope_uncertainty*255), cv2.COLORMAP_BONE)#, get_mpl_colormap('PuRd')) # 'PuRd', 'binary', 'gist_heat_r'
 
         # publish the data:
         self.prediction_pub.publish(self.bridge.cv2_to_imgmsg(prediction_img, encoding="passthrough"))
-        self.uncertainty_pub.publish(self.bridge.cv2_to_imgmsg(uncertainty_img, encoding="passthrough"))
+        #self.uncertainty_pub.publish(self.bridge.cv2_to_imgmsg(uncertainty_img, encoding="passthrough"))
         
  
 if __name__ == '__main__':

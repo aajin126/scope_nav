@@ -1,0 +1,22 @@
+# folder
+data/
+model/
+output/
+third_party/
+.vscode/
+
+
+# TensorBoard event files
+runs/
+
+# Python cache
+scripts/__pycache__/
+
+# Weights & Biases
+wandb/
+
+#bash files
+*.sh
+*.npz
+*.png
+
