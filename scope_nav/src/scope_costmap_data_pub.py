@@ -253,12 +253,12 @@ class ScopeCostmap:
             pred_mean_map = pred_mean.detach().cpu().numpy()
             pred_entropy_map = pred_entropy.detach().cpu().numpy()
 
-            # publish scope output data:
-            prediction_map = np.concatenate((pred_mean_map, pred_entropy_map), axis=1)
-            self.occ_grid = prediction_map.reshape(-1).tolist()
-            scope_output_data = ScopeOutputData()
-            scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
-            self.scope_output_data_pub.publish(scope_output_data)
+            # # publish scope output data:
+            # prediction_map = np.concatenate((pred_mean_map, pred_entropy_map), axis=1)
+            # self.occ_grid = prediction_map.reshape(-1).tolist()
+            # scope_output_data = ScopeOutputData()
+            # scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
+            # self.scope_output_data_pub.publish(scope_output_data)
         
             # visualize the local occupancy map:
             # create message:
