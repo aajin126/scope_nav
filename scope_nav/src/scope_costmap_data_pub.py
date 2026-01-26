@@ -166,24 +166,27 @@ class ScopeCostmap:
             distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
             # discretize to binary maps:
             input_binary_maps = input_gridMap.discretize(distances_x, distances_y)
-            
+            # local occupancy map update:
+            input_gridMap.update(x_odom, y_odom, distances_x, distances_y, P_free, P_occ)
+            input_occ_grid_map = input_gridMap.to_prob_occ_map(TRESHOLD_P_OCC)            
             # binary occupancy maps:
             input_binary_maps = input_binary_maps.unsqueeze(2)
             curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
             
             # feed the batch to the network:
-            num_samples = 1 
+            num_samples = 32
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
+            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
 
             for t in range(T):  
-                prediction = self.model(inputs_samples)
+                prediction, _ = self.model(inputs_samples, inputs_occ_map_samples)
                 prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
                 inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
 
             predictions = prediction.detach().clone().squeeze(1)
             # mean and std:
             pred_mean = prediction.detach().clone().squeeze(1) 
-            pred_entropy = torch.zeros((1, 1, IMG_SIZE, IMG_SIZE)).to(device)
+            pred_entropy = torch.zeros_like(predictions)
             for k in range(15):
                 c_entropy = self.c_entropy_table[k]
                 idx = predictions <= self.p_bins[k+1]
@@ -251,7 +254,7 @@ class ScopeCostmap:
             pred_entropy_map = pred_entropy.detach().cpu().numpy()
 
             # publish scope output data:
-            prediction_map = np.concatenate((pred_mean_map, pred_entropy_map, curr_map), axis=1)
+            prediction_map = np.concatenate((pred_mean_map, pred_entropy_map), axis=1)
             self.occ_grid = prediction_map.reshape(-1).tolist()
             scope_output_data = ScopeOutputData()
             scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
