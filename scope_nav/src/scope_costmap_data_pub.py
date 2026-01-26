@@ -185,7 +185,8 @@ class ScopeCostmap:
 
             predictions = prediction.detach().clone().squeeze(1)
             # mean and std:
-            pred_mean = prediction.detach().clone().squeeze(1) 
+            pred_samples = prediction.detach().clone().squeeze(1)
+            pred_mean = pred_samples.mean(dim=0, keepdim=True) 
             pred_entropy = torch.zeros_like(predictions)
             for k in range(15):
                 c_entropy = self.c_entropy_table[k]
