@@ -19,4 +19,4 @@ wandb/
 *.sh
 *.npz
 *.png
-
+*.pyc

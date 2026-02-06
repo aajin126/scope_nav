@@ -218,7 +218,7 @@ class ScopeCostmap:
             x_now = x_now[:, 0]     # [1]
             y_now = y_now[:, 0]     # [1]
             th_now = th_now[:, 0]   # [1]
-            fin_prediction_map = reprojection(prediction_maps[0].unsqueeze(0), x_now, y_now , th_now, MAP_X_LIMIT, MAP_Y_LIMIT)[0]
+            fin_prediction_map = reprojection(prediction_maps[T-1].unsqueeze(0), x_now, y_now , th_now, MAP_X_LIMIT, MAP_Y_LIMIT)[0]
             ##
             ## Publish occupied people data: prediction
             ##
@@ -253,8 +253,8 @@ class ScopeCostmap:
                 # plt.title(f"prediction_maps_org[{t}], max={pm_origin_img.max():.3f}")
                 # plt.show()
 
-            pred_map_occ[pred_map_occ < 0.5] = 0
-            idx_occ = np.argwhere(pred_map_occ > 0.5)
+            pred_map_occ[pred_map_occ < 0.3] = 0
+            idx_occ = np.argwhere(pred_map_occ > 0.3)
 
             # translate grid indicies to the physical positions:
             if len(idx_occ) > 0:
