@@ -1,34 +1,54 @@
 // Copyright 2018 David V. Lu!!
-#ifndef SOCIAL_NAVIGATION_LAYERS_PROXEMIC_LAYER_H
-#define SOCIAL_NAVIGATION_LAYERS_PROXEMIC_LAYER_H
-#include <ros/ros.h>
-#include <social_navigation_layers/social_layer.h>
-#include <dynamic_reconfigure/server.h>
-#include <social_navigation_layers/ProxemicLayerConfig.h>
+#ifndef SOCIAL_NAVIGATION_LAYERS__PROXEMIC_LAYER_HPP_
+#define SOCIAL_NAVIGATION_LAYERS__PROXEMIC_LAYER_HPP_
 
-double gaussian(double x, double y, double x0, double y0, double A, double varx, double vary, double skew);
-double get_radius(double cutoff, double A, double var);
+#include "social_navigation_layers/social_layer.h"
+
+#include <nav2_costmap_2d/costmap_2d.hpp>
+#include <nav2_costmap_2d/layered_costmap.hpp>
+
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp_lifecycle/lifecycle_node.hpp>
+#include "nav2_costmap_2d/layered_costmap.hpp"
+
+#include <angles/angles.h>
+
+#include <algorithm>
+#include <cmath>
 
 namespace social_navigation_layers
 {
+
+double gaussian(double x, double y, double x0, double y0, double A,
+                double varx, double vary, double skew);
+
+double get_radius(double cutoff, double A, double var);
+
 class ProxemicLayer : public SocialLayer
 {
 public:
-  ProxemicLayer()
-  {
-    layered_costmap_ = NULL;
-  }
+  ProxemicLayer() = default;
+  ~ProxemicLayer() override = default;
 
-  virtual void onInitialize();
-  virtual void updateBoundsFromPeople(double* min_x, double* min_y, double* max_x, double* max_y);
-  virtual void updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j);
+  void onInitialize() override;
+  void updateBoundsFromPeople(double* min_x, double* min_y, double* max_x, double* max_y) override;
+  void updateCosts(nav2_costmap_2d::Costmap2D& master_grid,
+                   int min_i, int min_j, int max_i, int max_j) override;
+
+private:
+  rcl_interfaces::msg::SetParametersResult
+  onParamChange(const std::vector<rclcpp::Parameter>& params);
 
 protected:
-  void configure(ProxemicLayerConfig &config, uint32_t level);
-  double cutoff_, amplitude_, covar_, factor_;
-  dynamic_reconfigure::Server<ProxemicLayerConfig>* server_;
-  dynamic_reconfigure::Server<ProxemicLayerConfig>::CallbackType f_;
+  double cutoff_{10.0};
+  double amplitude_{100.0};
+  double covar_{0.5};
+  double factor_{1.0};
+  double keep_time_{0.5};  // seconds
+
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;
 };
+
 }  // namespace social_navigation_layers
 
-#endif  // SOCIAL_NAVIGATION_LAYERS_PROXEMIC_LAYER_H
+#endif  // SOCIAL_NAVIGATION_LAYERS__PROXEMIC_LAYER_HPP_

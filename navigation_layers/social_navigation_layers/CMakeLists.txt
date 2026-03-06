@@ -1,59 +1,75 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(social_navigation_layers)
-set_directory_properties(PROPERTIES COMPILE_OPTIONS "-Wall;-Werror")
 
-find_package(catkin REQUIRED COMPONENTS
+add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+
+find_package(ament_cmake REQUIRED)
+find_package(angles REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(nav2_costmap_2d REQUIRED)
+find_package(people_msgs REQUIRED)
+
+include_directories(include)
+
+add_library(social_layers SHARED
+  src/social_layer.cpp
+  src/proxemic_layer.cpp
+  src/passing_layer.cpp
+)
+
+target_include_directories(social_layers
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(social_layers
   angles
-  costmap_2d
-  dynamic_reconfigure
+  nav2_costmap_2d
+  pluginlib
+  rclcpp
   geometry_msgs
   people_msgs
-  pluginlib
-  roscpp
 )
 
-generate_dynamic_reconfigure_options(
-  cfg/ProxemicLayer.cfg
-)
+# Export plugin description for Nav2 costmap plugins
+pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 
-catkin_package(
-    CATKIN_DEPENDS angles costmap_2d dynamic_reconfigure geometry_msgs people_msgs pluginlib roscpp
-    INCLUDE_DIRS include
-    LIBRARIES social_layers
-)
-
-include_directories(
-  include ${catkin_INCLUDE_DIRS}
-)
-
-## add cpp library
-add_library(social_layers
-            src/social_layer.cpp
-            src/proxemic_layer.cpp
-            src/passing_layer.cpp
-)
-add_dependencies(social_layers ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(
-    social_layers ${catkin_LIBRARIES}
-)
-
-if(CATKIN_ENABLE_TESTING)
-  find_package(catkin REQUIRED COMPONENTS roslint)
-  roslint_cpp()
-  roslint_add_test()
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
 endif()
 
-install(FILES costmap_plugins.xml
-        DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)
-
-install(TARGETS social_layers
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+install(
+  TARGETS social_layers
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
 install(
-    DIRECTORY include/${PROJECT_NAME}/
-    DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+  DIRECTORY include/
+  DESTINATION include
 )
+
+install(
+  FILES costmap_plugins.xml
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_export_include_directories(include)
+ament_export_libraries(social_layers)
+ament_export_dependencies(
+  angles
+  nav2_costmap_2d
+  pluginlib
+  rclcpp
+  geometry_msgs
+  people_msgs
+)
+
+ament_package()
+

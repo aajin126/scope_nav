@@ -1,61 +1,93 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(range_sensor_layer)
-set_directory_properties(PROPERTIES COMPILE_OPTIONS "-Wall;-Werror")
 
-find_package(catkin REQUIRED COMPONENTS
-    angles
-    costmap_2d
-    dynamic_reconfigure
-    geometry_msgs
-    pluginlib
-    roscpp
-    rospy
-    sensor_msgs
-    tf2_geometry_msgs
+# Compile options
+add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+
+find_package(ament_cmake REQUIRED)
+
+# ROS 2 deps
+find_package(angles REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(nav2_costmap_2d REQUIRED)
+
+include_directories(include)
+
+add_library(${PROJECT_NAME} SHARED
+  src/range_sensor_layer.cpp
 )
 
-generate_dynamic_reconfigure_options(cfg/RangeSensorLayer.cfg)
-
-catkin_package(
-    CATKIN_DEPENDS
-        angles
-        costmap_2d
-        dynamic_reconfigure
-        geometry_msgs
-        pluginlib
-        roscpp
-        rospy
-        sensor_msgs
-        tf2_geometry_msgs
-    INCLUDE_DIRS include
-    LIBRARIES ${PROJECT_NAME}
+target_include_directories(${PROJECT_NAME}
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
-include_directories(include ${catkin_INCLUDE_DIRS})
+ament_target_dependencies(${PROJECT_NAME}
+  angles
+  nav2_costmap_2d
+  pluginlib
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
 
-add_library(${PROJECT_NAME} src/range_sensor_layer.cpp)
-add_dependencies(${PROJECT_NAME} ${range_sensor_layer_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
+# If your plugin uses pluginlib macros, this helps ensure plugin description is available.
+# (You still need correct plugin XML content for Nav2.)
+pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 
-if(CATKIN_ENABLE_TESTING)
-  find_package(catkin REQUIRED COMPONENTS roslint)
-  roslint_cpp()
-  roslint_add_test()
+# Testing (optional)
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
 endif()
 
-install(TARGETS ${PROJECT_NAME}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
-install(FILES costmap_plugins.xml
-        DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+install(
+  DIRECTORY include/
+  DESTINATION include
 )
 
-install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+install(
+  FILES costmap_plugins.xml
+  DESTINATION share/${PROJECT_NAME}
 )
-catkin_install_python(PROGRAMS scripts/send_message.py
-                      DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+
+# ROS 2 python script install (replaces catkin_install_python)
+install(
+  PROGRAMS scripts/send_message.py
+  DESTINATION lib/${PROJECT_NAME}
 )
+
+ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
+ament_export_dependencies(
+  angles
+  nav2_costmap_2d
+  pluginlib
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
+
+ament_package()
+

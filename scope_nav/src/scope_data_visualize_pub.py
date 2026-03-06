@@ -1,76 +1,76 @@
-#!/usr/bin/env python
-#
-# revision history: xzt
-#  20240604 (TE): first version
-#
-# usage: python scope_data_visualize_pub.py
-#
-# This script is the SCOPE data visulization code of the SCOPE-NAV navigation framework.
-#------------------------------------------------------------------------------
+#!/usr/bin/env python3
+import numpy as np
+import cv2
 
-import rospy
-import geometry_msgs.msg
-from geometry_msgs.msg import TwistStamped, Twist, PoseStamped, Pose
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile
+
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import Point
-from scope_msgs.msg import ScopeInputData, ScopeOutputData
+from scope_msgs.msg import ScopeOutputData
 from cv_bridge import CvBridge
 
-import numpy as np
-#sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages') # in order to import cv2 under python3
-import cv2
-import matplotlib.pyplot as plt
 
-
-# get the coloar map:
-def get_mpl_colormap(cmap_name):
-    cmap = plt.get_cmap(cmap_name)
-    # Initialize the matplotlib color map
-    sm = plt.cm.ScalarMappable(cmap=cmap)
-    # Obtain linear color range
-    color_range = sm.to_rgba(np.linspace(0, 1, 256), bytes=True)[:,2::-1]
-    return color_range.reshape(256, 1, 3)
-
-class ScopeImageVisualizer:
-    # ped data:
-    #track_ped = None # pedestrian's information
-
-    # ROS objects
-    ped_sub = None # subscriber to get the global path
-    tf_listener = None # tf listener to get the pose of the robot
-    track_ped_pub = None # publisher to send the velocity commands
-    
-    # Constructor
-    def __init__(self): 
+class ScopeImageVisualizer(Node):
+    def __init__(self):
+        super().__init__('scope_visualizer')
         self.bridge = CvBridge()
 
-        # Initialize ROS objects
-        self.scope_sub = rospy.Subscriber('scope_output_data', ScopeOutputData, self.scope_callback)
-        self.prediction_pub = rospy.Publisher('prediction_img', Image, queue_size=10)
-        #self.uncertainty_pub = rospy.Publisher('uncertainty_img', Image, queue_size=10)
+        qos = QoSProfile(depth=10)
 
-    # Callback function for the path subscriber
-    def scope_callback(self, vae_msg):
-        scope_data = vae_msg.occ_grid
-        # prediction:
-        scope_prediction = np.array(scope_data[:64*64])
-        scope_prediction = scope_prediction.reshape(64, 64)
-        scope_prediction = np.flip(scope_prediction)#.transpose()) #.reshape(80,80,1)
-        prediction_img = cv2.applyColorMap(np.uint8(scope_prediction*255), cv2.COLORMAP_BONE)#, get_mpl_colormap('PuRd')) # 'PuRd', 'binary', 'gist_heat_r'
-        # uncertainty:
-        # scope_uncertainty = np.array(scope_data[64*64*2:])
-        # scope_uncertainty = scope_uncertainty.reshape(64, 64)
-        # scope_uncertainty = np.flip(scope_uncertainty)#.transpose()) #.reshape(80,80,1)
-        # uncertainty_img = cv2.applyColorMap(np.uint8(scope_uncertainty*255), cv2.COLORMAP_BONE)#, get_mpl_colormap('PuRd')) # 'PuRd', 'binary', 'gist_heat_r'
+        # Sub: scope_output_data (ScopeOutputData)
+        self.scope_sub = self.create_subscription(
+            ScopeOutputData,
+            'scope_output_data',
+            self.scope_callback,
+            qos
+        )
 
-        # publish the data:
-        self.prediction_pub.publish(self.bridge.cv2_to_imgmsg(prediction_img, encoding="passthrough"))
-        #self.uncertainty_pub.publish(self.bridge.cv2_to_imgmsg(uncertainty_img, encoding="passthrough"))
-        
- 
+        # Pub: prediction_img (sensor_msgs/Image)
+        self.prediction_pub = self.create_publisher(
+            Image,
+            'prediction_img',
+            qos
+        )
+
+        self.get_logger().info('ScopeImageVisualizer started (ROS2)')
+
+    def scope_callback(self, msg: ScopeOutputData):
+        # msg.occ_grid assumed to contain at least 64*64 floats in [0,1]
+        scope_data = msg.occ_grid
+
+        if scope_data is None or len(scope_data) < 64 * 64:
+            self.get_logger().warn(f'occ_grid too short: {0 if scope_data is None else len(scope_data)}')
+            return
+
+        # prediction: first 64*64
+        pred = np.array(scope_data[:64 * 64], dtype=np.float32).reshape(64, 64)
+
+        # keep original behavior: np.flip (note: flips both axes)
+        pred = np.flip(pred)
+
+        # clamp to [0,1] to avoid weird colormap artifacts
+        pred = np.clip(pred, 0.0, 1.0)
+
+        # apply colormap (same as original)
+        pred_u8 = (pred * 255.0).astype(np.uint8)
+        prediction_img = cv2.applyColorMap(pred_u8, cv2.COLORMAP_BONE)
+
+        # publish Image
+        img_msg = self.bridge.cv2_to_imgmsg(prediction_img, encoding='passthrough')
+        # (optional) stamp/frame: ROS1 code didn't set it, so we keep it empty.
+        self.prediction_pub.publish(img_msg)
+
+
+def main():
+    rclpy.init()
+    node = ScopeImageVisualizer()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
 if __name__ == '__main__':
-    rospy.init_node('scope_visualizer')
-
-    scope_visualizer = ScopeImageVisualizer()
-        
-    rospy.spin()
+    main()

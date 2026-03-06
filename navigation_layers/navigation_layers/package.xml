@@ -1,15 +1,19 @@
-<package format="2">
-    <name>navigation_layers</name>
-    <version>0.5.0</version>
-    <description>Extra navigation layers.</description>
-    <maintainer email="davidvlu@gmail.com">David V. Lu!!</maintainer>
-    <author>David V. Lu!!</author>
-    <license>BSD</license>  
+<?xml version="1.0"?>
+<package format="3">
+  <name>navigation_layers</name>
+  <version>0.5.0</version>
+  <description>Extra navigation layers.</description>
 
-    <buildtool_depend>catkin</buildtool_depend>
-    <exec_depend>range_sensor_layer</exec_depend>
-    <exec_depend>social_navigation_layers</exec_depend>
-    <export>
-        <metapackage/>
-    </export>
+  <maintainer email="davidvlu@gmail.com">David V. Lu!!</maintainer>
+  <author>David V. Lu!!</author>
+  <license>BSD</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>range_sensor_layer</exec_depend>
+  <exec_depend>social_navigation_layers</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>

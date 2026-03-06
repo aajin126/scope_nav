@@ -1,29 +1,20 @@
-cmake_minimum_required(VERSION 2.8.12)
-
+cmake_minimum_required(VERSION 3.8)
 project(scope_msgs)
 
-set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(std_msgs REQUIRED)
 
-find_package(catkin REQUIRED COMPONENTS
-   roscpp
-   rospy
-   std_msgs
-   message_generation
+set(msg_files
+  "msg/ScopeOutputData.msg"
+  "msg/ScopeInputData.msg"
 )
 
-add_message_files(
-  FILES
-    ScopeOutputData.msg
-    ScopeInputData.msg
+rosidl_generate_interfaces(${PROJECT_NAME}
+  ${msg_files}
+  DEPENDENCIES std_msgs
 )
 
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()
 
-generate_messages(
-  DEPENDENCIES
-    std_msgs
-)
-
-catkin_package(
-  CATKIN_DEPENDS
-    std_msgs
-)
