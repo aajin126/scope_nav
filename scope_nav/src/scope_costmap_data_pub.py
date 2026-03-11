@@ -174,7 +174,7 @@ class ScopeCostmap:
             curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
             
             # feed the batch to the network:
-            num_samples = 32
+            num_samples = 1
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
             inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
 
@@ -204,7 +204,7 @@ class ScopeCostmap:
             
             # get occupied indicies:
             pred_mean_occ = pred_mean.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.3] = 0
+            pred_mean_occ[pred_mean_occ < 0.5] = 0
             idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
