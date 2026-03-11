@@ -92,7 +92,7 @@ class ScopeCostmap:
         self.model.eval()
         # load the weights
         #
-        model_file = rospy.get_param('~model_file', "./model/sogmp_model.pth")
+        model_file = rospy.get_param('~model_file', "./model/so_scope_model.pth")
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
         print("Finish loading SO-SCOPE model.", device)
@@ -166,26 +166,24 @@ class ScopeCostmap:
             distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
             # discretize to binary maps:
             input_binary_maps = input_gridMap.discretize(distances_x, distances_y)
-            # local occupancy map update:
-            input_gridMap.update(x_odom, y_odom, distances_x, distances_y, P_free, P_occ)
-            input_occ_grid_map = input_gridMap.to_prob_occ_map(TRESHOLD_P_OCC)            
+            
             # binary occupancy maps:
             input_binary_maps = input_binary_maps.unsqueeze(2)
             curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
             
             # feed the batch to the network:
-            num_samples = 1
+            num_samples = 1 
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
 
             for t in range(T):  
-                prediction, _ = self.model(inputs_samples)
+                prediction = self.model(inputs_samples)
                 prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
                 inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
 
             predictions = prediction.detach().clone().squeeze(1)
             # mean and std:
             pred_mean = prediction.detach().clone().squeeze(1) 
-            pred_entropy = torch.zeros_like(predictions)
+            pred_entropy = torch.zeros((1, 1, IMG_SIZE, IMG_SIZE)).to(device)
             for k in range(15):
                 c_entropy = self.c_entropy_table[k]
                 idx = predictions <= self.p_bins[k+1]
@@ -260,7 +258,7 @@ class ScopeCostmap:
             self.scope_output_data_pub.publish(scope_output_data)
         
             # visualize the local occupancy map:
-            # create message:local_map_pub
+            # create message:
             occ_map = OccupancyGrid()
             # initialize header:
             #occ_map.header = self.header
