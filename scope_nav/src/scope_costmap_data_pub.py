@@ -82,7 +82,7 @@ class ScopeCostmap:
 
         # So-SCOPE model:
         # instantiate a model:
-        self.model = scope_plus_plus(input_channels=NUM_INPUT_CHANNELS,
+        self.model = scope(input_channels=NUM_INPUT_CHANNELS,
                         latent_dim=NUM_LATENT_DIM,
                         output_channels=NUM_OUTPUT_CHANNELS)
         # moves the model to device (cpu in our case so no change):
@@ -92,7 +92,7 @@ class ScopeCostmap:
         self.model.eval()
         # load the weights
         #
-        model_file = rospy.get_param('~model_file', "./model/sogmp_model.pth")
+        model_file = rospy.get_param('~model_file', "./model/model.pth")
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
         print("Finish loading SO-SCOPE model.", device)
@@ -204,7 +204,7 @@ class ScopeCostmap:
             
             # get occupied indicies:
             pred_mean_occ = pred_mean.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.5] = 0
+            pred_mean_occ[pred_mean_occ < 0.3] = 0
             idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
