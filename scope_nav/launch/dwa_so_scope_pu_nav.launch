@@ -4,12 +4,13 @@
   <arg name="gui" default="true" doc="Bring up the Gazebo graphical interface"/>
   <arg name="pose_initial_x" default="1.0"/> 
   <arg name="pose_initial_y" default="1.0"/>
+  <arg name="pose_initial_theta" default="0.13"/>
   <arg name="map_file" default="$(find robot_gazebo)/maps/gazebo_eng_lobby/gazebo_eng_lobby.yaml"/>
   <arg name="initial_pose_x" default="1.0"/>
   <arg name="initial_pose_y" default="0.0"/>
   <arg name="initial_pose_a" default="0.13"/>
   <arg name="statistics_file"   default="$(find scope_nav)/src/model/truncnorm_skewcauchy_statistics_tables/truncnorm_skewcauchy_entropy_pred_time_6.npy"/>
-  <arg name="model_file"   default="$(find scope_nav)/src/model/sogmp_model.pth"/>
+  <arg name="model_file"   default="$(find scope_nav)/src/model/so_scope_model.pth"/>
   <arg name="rviz" default="true"/> 
 
   <!-- Pedsim Gazebo -->
@@ -19,6 +20,7 @@
     <arg name="gui" value="$(arg gui)"/>
     <arg name="pose_initial_x" value="$(arg pose_initial_x)"/> 
     <arg name="pose_initial_y" value="$(arg pose_initial_y)"/>
+    <arg name="pose_initial_theta" value="$(arg pose_initial_theta)"/>
   </include>
 
   <!-- AMCL -->

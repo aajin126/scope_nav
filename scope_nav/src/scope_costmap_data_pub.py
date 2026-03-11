@@ -82,7 +82,7 @@ class ScopeCostmap:
 
         # So-SCOPE model:
         # instantiate a model:
-        self.model = scope_plus_plus(input_channels=NUM_INPUT_CHANNELS,
+        self.model = so_scope(input_channels=NUM_INPUT_CHANNELS,
                         latent_dim=NUM_LATENT_DIM,
                         output_channels=NUM_OUTPUT_CHANNELS)
         # moves the model to device (cpu in our case so no change):
@@ -174,12 +174,11 @@ class ScopeCostmap:
             curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
             
             # feed the batch to the network:
-            num_samples = 32
+            num_samples = 1
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
-            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
 
             for t in range(T):  
-                prediction, _ = self.model(inputs_samples, inputs_occ_map_samples)
+                prediction, _ = self.model(inputs_samples)
                 prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
                 inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
 
@@ -253,15 +252,15 @@ class ScopeCostmap:
             pred_mean_map = pred_mean.detach().cpu().numpy()
             pred_entropy_map = pred_entropy.detach().cpu().numpy()
 
-            # # publish scope output data:
-            # prediction_map = np.concatenate((pred_mean_map, pred_entropy_map), axis=1)
-            # self.occ_grid = prediction_map.reshape(-1).tolist()
-            # scope_output_data = ScopeOutputData()
-            # scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
-            # self.scope_output_data_pub.publish(scope_output_data)
+            # publish scope output data:
+            prediction_map = np.concatenate((pred_mean_map, pred_entropy_map, curr_map), axis=1)
+            self.occ_grid = prediction_map.reshape(-1).tolist()
+            scope_output_data = ScopeOutputData()
+            scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
+            self.scope_output_data_pub.publish(scope_output_data)
         
             # visualize the local occupancy map:
-            # create message:
+            # create message:local_map_pub
             occ_map = OccupancyGrid()
             # initialize header:
             #occ_map.header = self.header
