@@ -87,7 +87,7 @@ class ScopeCostmap:
         self.updated_local_map_pub = rospy.Publisher('updated_local_map', OccupancyGrid, queue_size=1, latch=False)
 
         # instantiate a model:
-        self.model = scope_plus_plus(input_channels=NUM_INPUT_CHANNELS,
+        self.model = so_scope(input_channels=NUM_INPUT_CHANNELS,
                         latent_dim=NUM_LATENT_DIM,
                         output_channels=NUM_OUTPUT_CHANNELS)
         # moves the model to device (cpu in our case so no change):
@@ -97,7 +97,7 @@ class ScopeCostmap:
         self.model.eval()
         # load the weights
         #
-        model_file = rospy.get_param('~model_file', "./model/model90.pth")
+        model_file = rospy.get_param('~model_file', "./model/so_scope_model.pth")
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
         print("Finish loading SO-SCOPE model.", device)
