@@ -82,7 +82,7 @@ class ScopeCostmap:
 
         # So-SCOPE model:
         # instantiate a model:
-        self.model = so_scope(input_channels=NUM_INPUT_CHANNELS,
+        self.model = scope_plus_plus(input_channels=NUM_INPUT_CHANNELS,
                         latent_dim=NUM_LATENT_DIM,
                         output_channels=NUM_OUTPUT_CHANNELS)
         # moves the model to device (cpu in our case so no change):
@@ -92,7 +92,7 @@ class ScopeCostmap:
         self.model.eval()
         # load the weights
         #
-        model_file = rospy.get_param('~model_file', "./model/so_scope_model.pth")
+        model_file = rospy.get_param('~model_file', "./model/sogmp_model.pth")
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
         print("Finish loading SO-SCOPE model.", device)
@@ -167,6 +167,10 @@ class ScopeCostmap:
             # discretize to binary maps:
             input_binary_maps = input_gridMap.discretize(distances_x, distances_y)
             
+            # for scope_plus_plus 
+            input_gridMap.update(x_odom, y_odom, distances_x, distances_y, P_free, P_occ)
+            input_occ_grid_map = input_gridMap.to_prob_occ_map(TRESHOLD_P_OCC)         
+
             # binary occupancy maps:
             input_binary_maps = input_binary_maps.unsqueeze(2)
             curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
@@ -175,8 +179,13 @@ class ScopeCostmap:
             num_samples = 1 
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
 
+            # for scope_plus_plus
+            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
+
             for t in range(T):  
-                prediction = self.model(inputs_samples)
+                #prediction = self.model(inputs_samples)
+                # for scope_plus_plus:
+                prediction, kl_loss = self.model(inputs_samples, inputs_occ_map_samples)
                 prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
                 inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
 
