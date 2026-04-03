@@ -11,6 +11,13 @@ def generate_launch_description():
 
     statistics_file = LaunchConfiguration('statistics_file')
     model_file = LaunchConfiguration('model_file')
+    use_sim_time = LaunchConfiguration('use_sim_time')
+
+    declare_use_sim_time = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='true',
+        description='Use simulation time from /clock'
+    )
 
     declare_statistics_file = DeclareLaunchArgument(
         'statistics_file',
@@ -28,7 +35,7 @@ def generate_launch_description():
         default_value=os.path.join(
             scope_nav_share,
             'src', 'model',
-            'so_scope_model.pth'
+            'model_90.pth'
         ),
         description='Path to SO-SCOPE model file'
     )
@@ -39,6 +46,9 @@ def generate_launch_description():
         executable='scope_input_data_pub.py',
         name='scope_input_data_pub',
         output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+        }]
     )
 
     # SCOPE Costmap Publisher
@@ -50,6 +60,7 @@ def generate_launch_description():
         parameters=[{
             'statistics_file': statistics_file,
             'model_file': model_file,
+            'use_sim_time': use_sim_time,
         }]
     )
 
@@ -64,7 +75,8 @@ def generate_launch_description():
     return LaunchDescription([
         declare_statistics_file,
         declare_model_file,
+        declare_use_sim_time,
         scope_input_data_pub,
         scope_costmap_data_pub,
-        scope_data_visualize_pub,
+        #scope_data_visualize_pub,
     ])

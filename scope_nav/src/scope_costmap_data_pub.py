@@ -81,7 +81,7 @@ class ScopeCostmap(Node):
         #self.updated_local_map_pub = self.create_publisher(OccupancyGrid, 'updated_local_map', QoSProfile(depth=1))
 
         # model
-        self.model = so_scope( 
+        self.model = scope_plus_plus( 
             input_channels=NUM_INPUT_CHANNELS,
             latent_dim=NUM_LATENT_DIM,
             output_channels=NUM_OUTPUT_CHANNELS,
@@ -90,7 +90,7 @@ class ScopeCostmap(Node):
         self.model.eval()
 
         # parameter: model_file
-        self.declare_parameter('model_file', './model/so_scope_model.pth')
+        self.declare_parameter('model_file', './model/model_90.pth')
         model_file = self.get_parameter('model_file').value
 
         checkpoint = torch.load(model_file, map_location=device)
@@ -215,6 +215,7 @@ class ScopeCostmap(Node):
                 occ_scope_pred.people.append(person)
 
         self.scope_prediction_pub.publish(occ_scope_pred)
+
 
         # publish OccupancyGrid local_map (pred_mean_map from last step)
         pred_mean_map = pred_mean.detach().cpu().numpy()

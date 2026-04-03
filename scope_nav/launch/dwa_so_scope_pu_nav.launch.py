@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition
 from launch_ros.actions import Node
@@ -108,10 +108,7 @@ def generate_launch_description():
         declare_rviz,
         hunavsim_launch,
         amcl_launch,
-        #static_map_odom,
-        #goal_visualize,
-        #scope_goal_visualize,
         #track_ped_pub,
-        scope_costmap_pub,
         rviz_launch,
+        scope_costmap_pub,
     ])

@@ -6,61 +6,66 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 
-from sensor_msgs.msg import Image
-from scope_msgs.msg import ScopeOutputData
-from cv_bridge import CvBridge
+from nav_msgs.msg import OccupancyGrid
 
 
 class ScopeImageVisualizer(Node):
     def __init__(self):
         super().__init__('scope_visualizer')
-        self.bridge = CvBridge()
 
         qos = QoSProfile(depth=10)
 
-        # Sub: scope_output_data (ScopeOutputData)
-        self.scope_sub = self.create_subscription(
-            ScopeOutputData,
-            'scope_output_data',
-            self.scope_callback,
+        # OpenCV window settings
+        self.scale = 10  # enlarge map by this factor
+        cv2.namedWindow('local_map', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('local_map', 256 * self.scale, 256 * self.scale)
+
+        # OpenCV window for visualization
+        cv2.namedWindow('scope_prediction', cv2.WINDOW_NORMAL)
+
+        # Sub: local_map (OccupancyGrid)
+        self.local_map_sub = self.create_subscription(
+            OccupancyGrid,
+            'local_map',
+            self.local_map_callback,
             qos
         )
 
-        # Pub: prediction_img (sensor_msgs/Image)
-        self.prediction_pub = self.create_publisher(
-            Image,
-            'prediction_img',
-            qos
-        )
+        self.get_logger().info('ScopeImageVisualizer started (ROS2, using /local_map)')
 
-        self.get_logger().info('ScopeImageVisualizer started (ROS2)')
+    def local_map_callback(self, msg: OccupancyGrid):
+        # msg.data: int8 [-1,100], unknown=-1
+        width = msg.info.width
+        height = msg.info.height
 
-    def scope_callback(self, msg: ScopeOutputData):
-        # msg.occ_grid assumed to contain at least 64*64 floats in [0,1]
-        scope_data = msg.occ_grid
-
-        if scope_data is None or len(scope_data) < 64 * 64:
-            self.get_logger().warn(f'occ_grid too short: {0 if scope_data is None else len(scope_data)}')
+        if width == 0 or height == 0 or len(msg.data) != width * height:
+            self.get_logger().warn(
+                f'Invalid local_map size: width={width}, height={height}, len(data)={len(msg.data)}'
+            )
             return
 
-        # prediction: first 64*64
-        pred = np.array(scope_data[:64 * 64], dtype=np.float32).reshape(64, 64)
+        data = np.array(msg.data, dtype=np.int16).reshape((height, width))
 
-        # keep original behavior: np.flip (note: flips both axes)
-        pred = np.flip(pred)
+        # treat unknown (-1) as free (0) for visualization
+        data[data < 0] = 0
 
-        # clamp to [0,1] to avoid weird colormap artifacts
-        pred = np.clip(pred, 0.0, 1.0)
+        # normalize 0-100 -> 0-255
+        norm = np.clip(data.astype(np.float32), 0.0, 100.0) / 100.0
+        img_u8 = (norm * 255.0).astype(np.uint8)
 
-        # apply colormap (same as original)
-        pred_u8 = (pred * 255.0).astype(np.uint8)
-        prediction_img = cv2.applyColorMap(pred_u8, cv2.COLORMAP_BONE)
+        color_img = cv2.applyColorMap(img_u8, cv2.COLORMAP_BONE)
 
-        # publish Image
-        img_msg = self.bridge.cv2_to_imgmsg(prediction_img, encoding='passthrough')
-        # (optional) stamp/frame: ROS1 code didn't set it, so we keep it empty.
-        self.prediction_pub.publish(img_msg)
+        # scale up for easier viewing
+        display_img = cv2.resize(
+            color_img,
+            None,
+            fx=self.scale,
+            fy=self.scale,
+            interpolation=cv2.INTER_NEAREST,
+        )
 
+        cv2.imshow('local_map', display_img)
+        cv2.waitKey(1)
 
 def main():
     rclpy.init()

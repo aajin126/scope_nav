@@ -117,6 +117,10 @@ Visualization Manager:
           Value: true
         agent4:
           Value: true
+        agent5:
+          Value: true
+        agent6:
+          Value: true
         base_footprint:
           Value: false
         base_link:
@@ -151,6 +155,10 @@ Visualization Manager:
           agent3:
             {}
           agent4:
+            {}
+          agent5:
+            {}
+          agent6:
             {}
           burger:
             {}
@@ -271,7 +279,7 @@ Visualization Manager:
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
       Draw Behind: false
-      Enabled: false
+      Enabled: true
       Name: Map
       Topic:
         Depth: 5
@@ -287,7 +295,7 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /local_costmap/costmap_updates
       Use Timestamp: false
-      Value: false
+      Value: true
     - Alpha: 1
       Class: rviz_default_plugins/Polygon
       Color: 25; 255; 0
