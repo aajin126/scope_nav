@@ -17,3 +17,5 @@ render_out/
  
 # ignore all .pdf files in the doc/ directory
 #doc/**/*.pdf
+
+scope_nav/src/model/*

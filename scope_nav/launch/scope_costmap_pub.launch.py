@@ -9,7 +9,6 @@ import os
 def generate_launch_description():
     scope_nav_share = get_package_share_directory('scope_nav')
 
-    statistics_file = LaunchConfiguration('statistics_file')
     model_file = LaunchConfiguration('model_file')
     use_sim_time = LaunchConfiguration('use_sim_time')
 
@@ -19,25 +18,14 @@ def generate_launch_description():
         description='Use simulation time from /clock'
     )
 
-    declare_statistics_file = DeclareLaunchArgument(
-        'statistics_file',
-        default_value=os.path.join(
-            scope_nav_share,
-            'src', 'model',
-            'truncnorm_skewcauchy_statistics_tables',
-            'truncnorm_skewcauchy_entropy_pred_time_6.npy'
-        ),
-        description='Path to statistics file'
-    )
-
     declare_model_file = DeclareLaunchArgument(
         'model_file',
         default_value=os.path.join(
             scope_nav_share,
-            'src', 'model',
+            'src', 'model', 'predocc_vae', 'v1.6',
             'model_90.pth'
         ),
-        description='Path to SO-SCOPE model file'
+        description='Path to predocc_vae model file'
     )
 
     # SCOPE INPUT DATA Publisher 
@@ -58,7 +46,6 @@ def generate_launch_description():
         name='scope_costmap_data_pub',
         output='screen',
         parameters=[{
-            'statistics_file': statistics_file,
             'model_file': model_file,
             'use_sim_time': use_sim_time,
         }]
@@ -73,7 +60,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        declare_statistics_file,
         declare_model_file,
         declare_use_sim_time,
         scope_input_data_pub,

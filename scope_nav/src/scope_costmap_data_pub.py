@@ -78,7 +78,6 @@ class ScopeCostmap(Node):
         self.scope_output_data_pub = self.create_publisher(ScopeOutputData, 'scope_output_data', QoSProfile(depth=1))
         self.scope_prediction_pub = self.create_publisher(People, 'scope_prediction', QoSProfile(depth=1))
         self.local_map_pub = self.create_publisher(OccupancyGrid, 'local_map', QoSProfile(depth=1))
-        #self.updated_local_map_pub = self.create_publisher(OccupancyGrid, 'updated_local_map', QoSProfile(depth=1))
 
         # model
         self.model = scope_plus_plus( 
@@ -90,12 +89,12 @@ class ScopeCostmap(Node):
         self.model.eval()
 
         # parameter: model_file
-        self.declare_parameter('model_file', './model/model_90.pth')
+        self.declare_parameter('model_file', './model/predocc_vae/v1.6/model.pth')
         model_file = self.get_parameter('model_file').value
 
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
-        self.get_logger().info(f'Finish loading SO-SCOPE model on {device} from: {model_file}')
+        self.get_logger().info(f'Finish loading predocc_vae model on {device} from: {model_file}')
 
         # timer
         self.ts_cnt = 0

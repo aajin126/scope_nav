@@ -17,19 +17,11 @@ def generate_launch_description():
         'gui', default_value='true',
         description='Bring up the Gazebo graphical interface')
 
-    declare_statistics_file = DeclareLaunchArgument(
-        'statistics_file',
-        default_value=os.path.join(
-            get_package_share_directory('scope_nav'),
-            'src', 'model',
-            'truncnorm_skewcauchy_statistics_tables',
-            'truncnorm_skewcauchy_entropy_pred_time_6.npy'))
-
     declare_model_file = DeclareLaunchArgument(
         'model_file',
         default_value=os.path.join(
             get_package_share_directory('scope_nav'),
-            'src', 'model', 'model.pth'))
+            'src', 'model', 'predocc_vae', 'v1.6','model.pth'))
 
     declare_rviz = DeclareLaunchArgument(
         'rviz', default_value='true')
@@ -48,17 +40,6 @@ def generate_launch_description():
                 get_package_share_directory('predocc'),
                 'launch', 'tb3', 'tb3_navigation.launch.py'))
     )
-
-    # Temporary fix: connect map and odom with an identity static TF
-    # This ensures map -> odom -> base_footprint exists even if AMCL
-    # does not publish the transform in this setup.
-    # static_map_odom = Node(
-    #     package='tf2_ros',
-    #     executable='static_transform_publisher',
-    #     name='static_map_odom',
-    #     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
-    #     output='screen',
-    # )
 
     goal_visualize = Node(
         package='scope_nav',
@@ -88,7 +69,6 @@ def generate_launch_description():
                 get_package_share_directory('scope_nav'),
                 'launch', 'scope_costmap_pub.launch.py')),
         launch_arguments={
-            'statistics_file': statistics_file,
             'model_file': model_file,
         }.items()
     )
@@ -103,7 +83,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_gui,
-        declare_statistics_file,
         declare_model_file,
         declare_rviz,
         hunavsim_launch,
