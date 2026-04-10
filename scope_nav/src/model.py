@@ -403,6 +403,7 @@ class scope_plus_plus(nn.Module):
         z = z.reshape(-1, 2, 16, 16)
         x_d = self._decoder_z_mu(z)
         prediction = self._decoder(x_d)
+        prediction = prediction.view(b, SEQ_LEN, self.output_channels, IMG_SIZE, IMG_SIZE)
 
         return prediction, kl_loss
 

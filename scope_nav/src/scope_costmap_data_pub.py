@@ -139,8 +139,8 @@ class ScopeCostmap(Node):
             return
 
         # build tensors
-        scans = torch.FloatTensor(self.scans).unsqueeze(0).to(device)         # [1, NUM_TP, 1080]
-        positions = torch.FloatTensor(self.positions).unsqueeze(0).to(device) # [1, NUM_TP, 3]
+        scans = torch.from_numpy(np.asarray(self.scans, dtype=np.float32)).unsqueeze(0).to(device)
+        positions = torch.from_numpy(np.asarray(self.positions, dtype=np.float32)).unsqueeze(0).to(device)
 
         batch_size = scans.size(0)
         prediction_maps = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
@@ -156,8 +156,6 @@ class ScopeCostmap(Node):
         )
 
         pos_origin = positions[:, SEQ_LEN - 1]
-        T = 6
-
         pos = positions[:, :SEQ_LEN]
         x_odom, y_odom, theta_odom = input_gridMap.robot_coordinate_transform(pos, pos_origin)
 
@@ -170,36 +168,43 @@ class ScopeCostmap(Node):
         input_gridMap.update(x_odom, y_odom, distances_x, distances_y, P_free, P_occ)
         input_occ_grid_map = input_gridMap.to_prob_occ_map(TRESHOLD_P_OCC)
 
-        num_samples = 32
+        num_samples = 1
         inputs_samples = input_binary_maps.repeat(num_samples, 1, 1, 1, 1)
         inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples, 1, 1, 1, 1)
+        
+        curr_pos_t = torch.from_numpy(curr_np).float().to(device).view(1, 3)
+        dx = curr_pos_t[:, 0] - pos_origin[:, 0]
+        dy = curr_pos_t[:, 1] - pos_origin[:, 1]
+        theta_ref = pos_origin[:, 2]
+        x_curr = torch.cos(theta_ref) * dx + torch.sin(theta_ref) * dy
+        y_curr = torch.sin(-theta_ref) * dx + torch.cos(theta_ref) * dy
+        th_curr = curr_pos_t[:, 2] - theta_ref
 
-        for t in range(T):
+        with torch.no_grad():
             prediction, _kl = self.model(inputs_samples, inputs_occ_map_samples)
-            prediction = prediction.reshape(-1, 1, 1, IMG_SIZE, IMG_SIZE)
-            inputs_samples = torch.cat([inputs_samples[:, 1:], prediction], dim=1)
 
-            predictions = prediction.squeeze(1)  # [S, 1, IMG, IMG]
-            pred_mean = torch.mean(predictions, dim=0, keepdim=True)  # [1,1,IMG,IMG]
+        prediction_seq = prediction[:, :SEQ_LEN]
+
+        for t in range(SEQ_LEN):
+            pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
             prediction_maps[t, 0] = pred_mean.squeeze()
 
-        # reprojection to current lidar frame (same logic)
-        curr_pos_t = torch.from_numpy(curr_np).float().to(device).view(1, 1, 3)
-        x_now, y_now, th_now = input_gridMap.robot_coordinate_transform(curr_pos_t, pos_origin)
-        x_now = x_now[:, 0]
-        y_now = y_now[:, 0]
-        th_now = th_now[:, 0]
-
-        fin_prediction_map = reprojection(
-            prediction_maps[T - 1].unsqueeze(0), x_now, y_now, th_now, MAP_X_LIMIT, MAP_Y_LIMIT
-        )[0]
+        merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
+        fin_prediction_map, _ = reprojection(
+            merged_prediction_map,
+            x_curr,
+            y_curr,
+            th_curr,
+            MAP_X_LIMIT,
+            MAP_Y_LIMIT,
+        )
 
         # publish People prediction
         occ_scope_pred = People()
         occ_scope_pred.header.stamp = self.get_clock().now().to_msg()
         occ_scope_pred.header.frame_id = 'base_scan'
 
-        pred_map_occ = fin_prediction_map.detach().cpu().numpy().copy()
+        pred_map_occ = fin_prediction_map.squeeze(0).detach().cpu().numpy().copy()
         pred_map_occ[pred_map_occ < 0.5] = 0.0
         idx_occ = np.argwhere(pred_map_occ > 0.5)
 
@@ -217,7 +222,7 @@ class ScopeCostmap(Node):
 
 
         # publish OccupancyGrid local_map (pred_mean_map from last step)
-        pred_mean_map = pred_mean.detach().cpu().numpy()
+        pred_mean_map = fin_prediction_map.detach().cpu().numpy()
         occ_map = OccupancyGrid()
         occ_map.header.stamp = self.get_clock().now().to_msg()
         occ_map.header.frame_id = 'base_scan'

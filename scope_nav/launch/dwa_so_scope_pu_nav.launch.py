@@ -62,6 +62,18 @@ def generate_launch_description():
         output='screen'
     )
 
+    track_hunav = Node(
+        package='scope_nav',
+        executable='track_hunav.py',
+        name='track_hunav',
+        output='screen',
+        parameters=[{
+            'input_topic': '/people',
+            'output_topic': '/people_relative',
+            'base_frame': 'base_footprint',
+        }]
+    )
+
     # SCOPE Costmap Publisher
     scope_costmap_pub = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -87,7 +99,7 @@ def generate_launch_description():
         declare_rviz,
         hunavsim_launch,
         amcl_launch,
-        #track_ped_pub,
+        track_hunav,
         rviz_launch,
         scope_costmap_pub,
     ])
