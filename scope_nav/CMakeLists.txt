@@ -18,7 +18,6 @@ install(PROGRAMS
 	src/scope_costmap_data_pub.py
 	src/scope_data_visualize_pub.py
 	src/goal_visualize.py
-	src/track_hunav.py
 	DESTINATION lib/${PROJECT_NAME}
 )
 

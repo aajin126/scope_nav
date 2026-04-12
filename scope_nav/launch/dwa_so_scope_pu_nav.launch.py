@@ -50,32 +50,6 @@ def generate_launch_description():
                 'launch', 'tb3', 'tb3_navigation.launch.py'))
     )
 
-    goal_visualize = Node(
-        package='scope_nav',
-        executable='goal_visualize',
-        name='goal_visualize',
-        output='screen'
-    )
-
-    scope_goal_visualize = Node(
-        package='scope_nav',
-        executable='goal_visualize',
-        name='scope_goal_visualize',
-        output='screen'
-    )
-
-    track_hunav = Node(
-        package='scope_nav',
-        executable='track_hunav.py',
-        name='track_hunav',
-        output='screen',
-        parameters=[{
-            'input_topic': '/people',
-            'output_topic': '/people_viz',
-            'base_frame': 'base_footprint',
-        }]
-    )
-
     # SCOPE Costmap Publisher
     scope_costmap_pub = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
