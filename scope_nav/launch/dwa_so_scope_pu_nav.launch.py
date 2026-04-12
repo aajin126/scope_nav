@@ -8,6 +8,15 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 import os
 
 def generate_launch_description():
+    
+    static_tf = Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='gazebo_map_broadcaster',
+            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'gazebo'],
+            output='screen'
+        )
+
     gui = LaunchConfiguration('gui')
     statistics_file = LaunchConfiguration('statistics_file')
     model_file = LaunchConfiguration('model_file')
@@ -55,13 +64,6 @@ def generate_launch_description():
         output='screen'
     )
 
-    track_ped_pub = Node(
-        package='scope_nav',
-        executable='track_ped_pub',
-        name='track_ped_pub',
-        output='screen'
-    )
-
     track_hunav = Node(
         package='scope_nav',
         executable='track_hunav.py',
@@ -69,7 +71,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'input_topic': '/people',
-            'output_topic': '/people_relative',
+            'output_topic': '/people_viz',
             'base_frame': 'base_footprint',
         }]
     )
@@ -97,9 +99,10 @@ def generate_launch_description():
         declare_gui,
         declare_model_file,
         declare_rviz,
+        static_tf,
         hunavsim_launch,
         amcl_launch,
-        track_hunav,
+        #track_hunav,
         rviz_launch,
         scope_costmap_pub,
     ])
