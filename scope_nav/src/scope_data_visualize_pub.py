@@ -17,7 +17,6 @@ from scope_msgs.msg import ScopeInputData, ScopeOutputData
 from cv_bridge import CvBridge
 
 import numpy as np
-#sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages') # in order to import cv2 under python3
 import cv2
 import matplotlib.pyplot as plt
 

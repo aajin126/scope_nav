@@ -1,7 +1,6 @@
 <launch>
   <arg name="gui" default="true" doc="Bring up the Gazebo graphical interface"/>
-  <arg name="statistics_file"   default="$(find scope_nav)/src/model/truncnorm_skewcauchy_statistics_tables/truncnorm_skewcauchy_entropy_pred_time_6.npy"/>
-  <arg name="model_file"   default="$(find scope_nav)/src/model/best_val.pth"/>
+  <arg name="model_file"   default="$(find scope_nav)/src/model/predocc/v1.6/model.pth"/>
   <arg name="rviz" default="true"/> 
   <arg name="debug_save" value="true"/>
 
@@ -59,7 +58,6 @@
 
   <!-- SCOPE Costmap Publisher -->
   <include file="$(find scope_nav)/launch/scope_costmap_pub.launch">
-    <arg name="statistics_file" value="$(arg statistics_file)"/>
     <arg name="model_file" value="$(arg model_file)"/>
   </include>
 

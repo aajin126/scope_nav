@@ -60,7 +60,6 @@ class ScopeCostmap:
         self.curr_vel = np.zeros(2)
         self.curr_pos = np.zeros(3)
         self.curr_odom = np.zeros(3)
-        self.curr_pos_np = None  # 추가
         self.scope_header = Header()
         self.occ_grid = [] #np.zeros((IMG_SIZE, IMG_SIZE))
         # input:
@@ -68,10 +67,10 @@ class ScopeCostmap:
         self.positions = []
         self.velocities = []
         self.header = Header() 
+        self.tf_listener = None
 
         # initialize ROS objects
         self.scope_input_data_sub = rospy.Subscriber("scope_input_data", ScopeInputData, self.scope_input_data_callback)
-        self.odom_sub = rospy.Subscriber("odom", Odometry, self.odom_cb)
     
         self.scope_output_data_pub = rospy.Publisher('scope_output_data', ScopeOutputData, queue_size=1, latch=False)
         self.scope_prediction_pub = rospy.Publisher('scope_prediction', People, queue_size=1, latch=False)
@@ -113,14 +112,6 @@ class ScopeCostmap:
         self.curr_pos = np.array(scope_input_data_msg.curr_pos, dtype=np.float32)
         self.curr_odom = np.array(scope_input_data_msg.curr_odom, dtype=np.float32)
 
-    def odom_cb(self, msg: Odometry):
-        p = msg.pose.pose.position
-        q = msg.pose.pose.orientation
-        yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])[2]
-
-        with self.lock:
-            self.curr_pos_np = np.array([p.x, p.y, yaw], dtype=np.float32)
-
     # function that runs every time the timer finishes to ensure that vae data are sent regularly
     def timer_callback(self, event):  
         # collect 10 time step data:
@@ -143,6 +134,7 @@ class ScopeCostmap:
 
             # create occupancy maps:
             batch_size = scans.size(0)
+            prediction_maps = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
             # one prediction: 10 time steps:
             # Create input grid maps: 
             input_gridMap = LocalMap(X_lim = MAP_X_LIMIT, 
@@ -177,36 +169,56 @@ class ScopeCostmap:
 
             prediction, _ = self.model(inputs_samples, inputs_occ_map_samples)
 
-            ##
-            ## final prediction map: transform to the current robot reference frame
-            ##
-            with self.lock:
-                curr_np = None if self.curr_pos_np is None else self.curr_pos_np.copy()
-            curr_pos_t = torch.from_numpy(curr_np).float().to(device).view(1, 1, 3)
+            prediction_seq = prediction[:, :SEQ_LEN]
 
+            for t in range(SEQ_LEN):
+                pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
+                prediction_maps[t, 0] = pred_mean.squeeze()
+
+            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
+            ##
+            ## final prediction map: transform to the current robot frame
+            ##
+            if self.tf_listener is None:
+                import tf
+                self.tf_listener = tf.TransformListener()
+
+            try:
+                (trans, rot) = self.tf_listener.lookupTransform('/map', '/base_footprint', rospy.Time(0))
+                (_, _, theta) = tft.euler_from_quaternion(rot)
+                curr_pos_tf = np.array([trans[0], trans[1], theta], dtype=np.float32)
+            except Exception as e:
+                rospy.logwarn('TF lookup failed, fallback to last pose: %s', str(e))
+                curr_pos_tf = self.curr_pos.copy()
+
+            curr_pos_t = torch.from_numpy(curr_pos_tf).float().to(device).view(1, 1, 3)
             x_now, y_now, th_now = input_gridMap.robot_coordinate_transform(curr_pos_t, pos_origin)
-            x_now = x_now[:, 0]     # [1]
-            y_now = y_now[:, 0]     # [1]
-            th_now = th_now[:, 0]   # [1]
+            x_now = x_now[:, 0]
+            y_now = y_now[:, 0]
+            th_now = th_now[:, 0]
 
-            fin_prediction_map = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
+            #fin_prediction_map = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
 
-            for k in range(SEQ_LEN):
-                pred_k = prediction[:, k]   # (B, 1, H, W)
+            # for k in range(SEQ_LEN):
+            #     pred_k = prediction[:, k]   # (B, 1, H, W)
+            #     reproj_k, _ = reprojection(
+            #         pred_k, x_now, y_now, th_now,
+            #         MAP_X_LIMIT, MAP_Y_LIMIT
+            #     )
+            #     pred_mean_k = reproj_k.squeeze()   # (B, H, W) or (H,W) if B=1
+            #     fin_prediction_map[k, 0] = pred_mean_k
 
-                reproj_k, _ = reprojection(
-                    pred_k, x_now, y_now, th_now,
-                    MAP_X_LIMIT, MAP_Y_LIMIT
-                ) 
+            # fin_prediction_map, _ = torch.max(fin_prediction_map, dim=0) # (1, H, W)
 
-                pred_mean_k = reproj_k.squeeze()   # (B, H, W) or (H,W) if B=1
-                fin_prediction_map[k, 0] = pred_mean_k
-            
-            fin_prediction_map, _ = torch.max(fin_prediction_map, dim=0) # (1, H, W)
+            fin_prediction_map, _ = reprojection(
+                merged_prediction_map,
+                x_now,
+                y_now,
+                th_now,
+                MAP_X_LIMIT,
+                MAP_Y_LIMIT,
+            )
 
-            ##
-            ## Publish occupied people data: prediction
-            ##
             occ_scope_pred = People()
             #occ_scope_pred.header = self.header
             occ_scope_pred.header.stamp = rospy.Time.now()
