@@ -15,26 +15,18 @@ from scope_msgs.msg import ScopeInputData, ScopeOutputData
 from geometry_msgs.msg import Point, PoseStamped, Twist, TwistStamped
 from people_msgs.msg import People, Person
 from nav_msgs.msg import Odometry, OccupancyGrid
-from std_msgs.msg import Header, Float32MultiArray
+from std_msgs.msg import Header
+import tf.transformations as tft
 # python: 
 import numpy as np
 import math
-import matplotlib.pyplot as plt
 # import the model and all of its variables/functions
 #
 from model import *
 from local_occ_grid_map import LocalMap
-from scope_gridmap_updater import GridMapTransformer
+from reproj import reprojection
 import torch
 import threading
-from reproj import reprojection
-
-from PIL import Image 
-import os
-import numpy as np
-import tf.transformations as tft
-import threading
-
 
 # Constants
 IMG_SIZE = 64 #80
@@ -67,8 +59,8 @@ class ScopeCostmap:
         self.scan_ranges = np.zeros(1080)
         self.curr_vel = np.zeros(2)
         self.curr_pos = np.zeros(3)
-        self.curr_pos_np = None  # np.array([x,y,yaw])
         self.curr_odom = np.zeros(3)
+        self.curr_pos_np = None  # 추가
         self.scope_header = Header()
         self.occ_grid = [] #np.zeros((IMG_SIZE, IMG_SIZE))
         # input:
@@ -76,18 +68,25 @@ class ScopeCostmap:
         self.positions = []
         self.velocities = []
         self.header = Header() 
-        self.lock = threading.Lock()
-        self.odom_sub = rospy.Subscriber("odom", Odometry, self.odom_cb, queue_size=10)
+
+        # read truncnorm & skewcauchy model parameters:
+        occ_entropy_path = rospy.get_param('~statistics_file', './model/truncnorm_skewcauchy_statistics_tables/truncnorm_skewcauchy_entropy_pred_time_6.npy')
+        truncnorm_skewcauchy_occ_entropy = np.load(occ_entropy_path)
+        self.c_entropy_table = torch.tensor(truncnorm_skewcauchy_occ_entropy).to(device)
+        self.p_bins = torch.linspace(0, 1, steps=16).to(device)
+        
         # initialize ROS objects
         self.scope_input_data_sub = rospy.Subscriber("scope_input_data", ScopeInputData, self.scope_input_data_callback)
+        self.odom_sub = rospy.Subscriber("odom", Odometry, self.odom_cb)  # odom 구독자 추가
     
         self.scope_output_data_pub = rospy.Publisher('scope_output_data', ScopeOutputData, queue_size=1, latch=False)
         self.scope_prediction_pub = rospy.Publisher('scope_prediction', People, queue_size=1, latch=False)
+        self.scope_uncertainty_pub = rospy.Publisher('scope_uncertainty', People, queue_size=1, latch=False)
         self.local_map_pub = rospy.Publisher('local_map', OccupancyGrid, queue_size=1, latch=False)
-        self.updated_local_map_pub = rospy.Publisher('updated_local_map', OccupancyGrid, queue_size=1, latch=False)
+
 
         # instantiate a model:
-        self.model = so_scope(input_channels=NUM_INPUT_CHANNELS,
+        self.model = scope_plus_plus(input_channels=NUM_INPUT_CHANNELS,
                         latent_dim=NUM_LATENT_DIM,
                         output_channels=NUM_OUTPUT_CHANNELS)
         # moves the model to device (cpu in our case so no change):
@@ -97,10 +96,10 @@ class ScopeCostmap:
         self.model.eval()
         # load the weights
         #
-        model_file = rospy.get_param('~model_file', "./model/so_scope_model.pth")
+        model_file = rospy.get_param('~model_file', "./model/best_val.pth")
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
-        print("Finish loading SO-SCOPE model.", device)
+        print("Finish loading Predocc model.", device)
 
         # Lock
         self.lock = threading.Lock() # lock to keep twist/time thread safe
@@ -141,34 +140,28 @@ class ScopeCostmap:
         self.ts_cnt = self.ts_cnt + 1
 
         if(self.ts_cnt == NUM_TP): 
-            ## SOGMP inference:
+            ## predocc inference:
             # collect the samples as a batch:
             scans = torch.FloatTensor(self.scans).unsqueeze(0)
             scans = scans.to(device)
             positions = torch.FloatTensor(self.positions).unsqueeze(0)
             positions = positions.to(device)
-            # velocities = torch.FloatTensor(self.velocities).unsqueeze(0)
-            # velocities = velocities.to(device)
-            
+
             # create occupancy maps:
             batch_size = scans.size(0)
-            prediction_maps = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
-            prediction_maps_org = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
-            # multi-step prediction: 10 time steps:
+            # one prediction: 10 time steps:
             # Create input grid maps: 
             input_gridMap = LocalMap(X_lim = MAP_X_LIMIT, 
-                                    Y_lim = MAP_Y_LIMIT, 
-                                    resolution = RESOLUTION, 
-                                    p = P_prior,
-                                    size=[batch_size, SEQ_LEN],
-                                    device = device)
-            # current position: 
+                        Y_lim = MAP_Y_LIMIT, 
+                        resolution = RESOLUTION, 
+                        p = P_prior,
+                        size=[batch_size, SEQ_LEN],
+                        device = device)
             pos_origin = positions[:, SEQ_LEN-1]
-            T = 6 #SEQ_LEN #int(t_pred)
             # robot positions:
             pos = positions[:,:SEQ_LEN]
             # Transform the robot past poses to the predicted reference frame.
-            x_odom, y_odom, theta_odom = input_gridMap.robot_coordinate_transform(pos, pos_origin)
+            x_odom, y_odom, theta_odom =  input_gridMap.robot_coordinate_transform(pos, pos_origin)
             # Lidar measurements:
             distances = scans[:,:SEQ_LEN]
             # the angles of lidar scan: -135 ~ 135 degree
@@ -177,36 +170,19 @@ class ScopeCostmap:
             distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
             # discretize to binary maps:
             input_binary_maps = input_gridMap.discretize(distances_x, distances_y)
-            # binary occupancy maps:
-            input_binary_maps = input_binary_maps.unsqueeze(2)
             # local occupancy map update:
             input_gridMap.update(x_odom, y_odom, distances_x, distances_y, P_free, P_occ)
             input_occ_grid_map = input_gridMap.to_prob_occ_map(TRESHOLD_P_OCC)
-            curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
-            #print("Input data preparation done.")
-            
+            # binary occupancy maps:
+            input_binary_maps = input_binary_maps.unsqueeze(2)
+
             # feed the batch to the network:
-            num_samples = 32
+            num_samples = 1
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
             inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
-            
 
-            for t in range(T):  
-                prediction, kl_loss = self.model(inputs_samples, inputs_occ_map_samples)
-                #prediction_t, _ = reprojection(prediction, x_rel[:, t], y_rel[:, t], th_rel[:, t], MAP_X_LIMIT, MAP_Y_LIMIT)
-                prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
-                #prediction_t = prediction_t.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
-                inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
-                #predictions = prediction_t.squeeze(1) 
-                predictions = prediction.squeeze(1)
+            prediction, _ = self.model(inputs_samples, inputs_occ_map_samples)
 
-                #pred_mean = torch.mean(predictions, dim=0, keepdim=True)
-                #prediction_maps[t, 0] = pred_mean.squeeze()
-
-                pred_mean = torch.mean(predictions, dim=0, keepdim=True)
-                prediction_maps[t, 0] = pred_mean.squeeze()
-                #print("Time step ", t, " prediction done.")
-            
             ##
             ## final prediction map: transform to the current robot reference frame
             ##
@@ -218,7 +194,23 @@ class ScopeCostmap:
             x_now = x_now[:, 0]     # [1]
             y_now = y_now[:, 0]     # [1]
             th_now = th_now[:, 0]   # [1]
-            fin_prediction_map = reprojection(prediction_maps[T-1].unsqueeze(0), x_now, y_now , th_now, MAP_X_LIMIT, MAP_Y_LIMIT)[0]
+
+            fin_prediction_map = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
+
+            for k in range(SEQ_LEN):
+                pred_k = prediction[:, k]   # (B, 1, H, W)
+
+                reproj_k, _ = reprojection(
+                    pred_k, x_now, y_now, th_now,
+                    MAP_X_LIMIT, MAP_Y_LIMIT
+                )                           # 보통 (B, 1, H, W)
+
+                pred_mean_k = reproj_k.squeeze()   # (B, H, W) or (H,W) if B=1
+                fin_prediction_map[k, 0] = pred_mean_k
+            
+            fin_prediction_map, _ = torch.max(fin_prediction_map, dim=0) # (1, H, W)
+
+
             ##
             ## Publish occupied people data: prediction
             ##
@@ -226,53 +218,30 @@ class ScopeCostmap:
             #occ_scope_pred.header = self.header
             occ_scope_pred.header.stamp = rospy.Time.now()
             occ_scope_pred.header.frame_id = "hokuyo_link"
-            
-            # get occupied indicies from transformed map:
-            pred_map_occ = fin_prediction_map.detach().cpu().numpy().copy()
-            #pred_map_occ_origin = prediction_maps_org[T-1].detach().cpu().numpy().copy()
-            
-            # for t in range(T):
-            #     pm = prediction_maps[t].detach().cpu().numpy()
-                #pm_origin = prediction_maps_org[t].detach().cpu().numpy()
 
-                # (1,64,64) → (64,64)
-                # pm_img = pm.squeeze()
-
-                # plt.figure(figsize=(4,4))
-                # plt.imshow(pm_img, cmap="hot", vmin=0.0, vmax=1.0)
-                # plt.colorbar()
-                # plt.title(f"prediction_maps[{t}], max={pm_img.max():.3f}")
-                # plt.show()
-
-                # # (1,64,64) → (64,64)
-                # pm_origin_img = pm_origin.squeeze()
-
-                # plt.figure(figsize=(4,4))
-                # plt.imshow(pm_origin_img, cmap="hot", vmin=0.0, vmax=1.0)
-                # plt.colorbar()
-                # plt.title(f"prediction_maps_org[{t}], max={pm_origin_img.max():.3f}")
-                # plt.show()
-
-            pred_map_occ[pred_map_occ < 0.3] = 0
-            idx_occ = np.argwhere(pred_map_occ > 0.3)
+            # get occupied indicies:
+            pred_mean_occ = fin_prediction_map.squeeze()
+            pred_mean_occ[pred_mean_occ < 0.5] = 0
+            idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
-            if len(idx_occ) > 0:
-                px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
-                py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
+            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
+            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
+            px = px.detach().cpu().numpy()
+            py = py.detach().cpu().numpy()
+            idx_occ = idx_occ.detach().cpu().numpy()
 
-                for i in range(len(px)):
-                    o_pose = Person()
-                    o_pose.position.x = px[i]
-                    o_pose.position.y = py[i]
-                    o_pose.position.z = 0
-                    occ_scope_pred.people.append(o_pose)
-
+            for i in range(len(px)):
+                o_pose = Person()
+                o_pose.position.x = px[i]
+                o_pose.position.y = py[i]
+                o_pose.position.z = 0
+                occ_scope_pred.people.append(o_pose)
             # publish prediction map:
             self.scope_prediction_pub.publish(occ_scope_pred)
 
             # get the output:
-            pred_mean_map = pred_mean.detach().cpu().numpy()
+            pred_mean_map = fin_prediction_map.detach().cpu().numpy()
 
             # visualize the local occupancy map:
             # create message:

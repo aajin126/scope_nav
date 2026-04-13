@@ -172,12 +172,12 @@ class Residual(nn.Module):
     def __init__(self, in_channels, num_hiddens, num_residual_hiddens):
         super(Residual, self).__init__()
         self._block = nn.Sequential(
-            nn.ReLU(True),
+            nn.ReLU(),
             nn.Conv2d(in_channels=in_channels,
                       out_channels=num_residual_hiddens,
                       kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(num_residual_hiddens),
-            nn.ReLU(True),
+            nn.ReLU(),
             nn.Conv2d(in_channels=num_residual_hiddens,
                       out_channels=num_hiddens,
                       kernel_size=1, stride=1, bias=False),
@@ -211,7 +211,7 @@ class Encoder(nn.Module):
                                                   stride=2, 
                                                   padding=1),
                                         nn.BatchNorm2d(num_hiddens//2),
-                                        nn.ReLU(True)
+                                        nn.ReLU()
                                     ])
         self._conv_2 = nn.Sequential(*[
                                         nn.Conv2d(in_channels=num_hiddens//2,
@@ -220,7 +220,7 @@ class Encoder(nn.Module):
                                                   stride=2, 
                                                   padding=1),
                                         nn.BatchNorm2d(num_hiddens)
-                                        #nn.ReLU(True)
+                                        #nn.ReLU()
                                     ])
         self._residual_stack = ResidualStack(in_channels=num_hiddens,
                                              num_hiddens=num_hiddens,
@@ -244,14 +244,14 @@ class Decoder(nn.Module):
                                              num_residual_hiddens=num_residual_hiddens)
 
         self._conv_trans_2 = nn.Sequential(*[
-                                            nn.ReLU(True),
+                                            nn.ReLU(),
                                             nn.ConvTranspose2d(in_channels=num_hiddens,
                                                               out_channels=num_hiddens//2,
                                                               kernel_size=4,
                                                               stride=2,
                                                               padding=1),
                                             nn.BatchNorm2d(num_hiddens//2),
-                                            nn.ReLU(True)
+                                            nn.ReLU()
                                         ])
 
         self._conv_trans_1 = nn.Sequential(*[
@@ -261,7 +261,7 @@ class Decoder(nn.Module):
                                                               stride=2,
                                                               padding=1),
                                             nn.BatchNorm2d(num_hiddens//2),
-                                            nn.ReLU(True),                  
+                                            nn.ReLU(),                  
                                             nn.Conv2d(in_channels=num_hiddens//2,
                                                       out_channels=out_channels,
                                                       kernel_size=3,
@@ -309,10 +309,10 @@ class VAE_Encoder(nn.Module):
         x = x.reshape(-1, self.input_channels, IMG_SIZE, IMG_SIZE)
         # Encoder:
         encoder_out = self._encoder(x)
-        # get `mu` and `log_var`:
+        # get `mean` and `log_var`:
         z_mu = self._encoder_z_mu(encoder_out)
         z_log_sd = self._encoder_z_log_sd(encoder_out)
-        return z_mu, z_log_sd
+        return z_mu, z_log_sd 
 		
 # our proposed model:
 class scope_plus_plus(nn.Module):
@@ -341,7 +341,8 @@ class scope_plus_plus(nn.Module):
                                     out_channels=num_hiddens,
                                     kernel_size=1, 
                                     stride=1)
-        self._decoder = Decoder(self.output_channels,
+        self.pred_len = SEQ_LEN
+        self._decoder = Decoder(self.output_channels * self.pred_len,
                                 num_hiddens, 
                                 num_residual_layers, 
                                 num_residual_hiddens)
@@ -402,6 +403,7 @@ class scope_plus_plus(nn.Module):
         z = z.reshape(-1, 2, 16, 16)
         x_d = self._decoder_z_mu(z)
         prediction = self._decoder(x_d)
+        prediction = prediction.view(b, SEQ_LEN, self.output_channels, IMG_SIZE, IMG_SIZE)
 
         return prediction, kl_loss
 
@@ -476,6 +478,7 @@ class scope(nn.Module):
         # encode: 
         # initialize hidden states
         h_enc, enc_state = self._convlstm.init_hidden(batch_size=b, image_size=(h, w))
+
         for t in range(seq_len): 
             x_in = x[:,t]
             h_enc, enc_state = self._convlstm(input_tensor=x_in,
