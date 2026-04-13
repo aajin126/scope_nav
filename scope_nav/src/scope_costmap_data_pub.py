@@ -69,15 +69,9 @@ class ScopeCostmap:
         self.velocities = []
         self.header = Header() 
 
-        # read truncnorm & skewcauchy model parameters:
-        occ_entropy_path = rospy.get_param('~statistics_file', './model/truncnorm_skewcauchy_statistics_tables/truncnorm_skewcauchy_entropy_pred_time_6.npy')
-        truncnorm_skewcauchy_occ_entropy = np.load(occ_entropy_path)
-        self.c_entropy_table = torch.tensor(truncnorm_skewcauchy_occ_entropy).to(device)
-        self.p_bins = torch.linspace(0, 1, steps=16).to(device)
-        
         # initialize ROS objects
         self.scope_input_data_sub = rospy.Subscriber("scope_input_data", ScopeInputData, self.scope_input_data_callback)
-        self.odom_sub = rospy.Subscriber("odom", Odometry, self.odom_cb)  # odom 구독자 추가
+        self.odom_sub = rospy.Subscriber("odom", Odometry, self.odom_cb)
     
         self.scope_output_data_pub = rospy.Publisher('scope_output_data', ScopeOutputData, queue_size=1, latch=False)
         self.scope_prediction_pub = rospy.Publisher('scope_prediction', People, queue_size=1, latch=False)
@@ -203,13 +197,12 @@ class ScopeCostmap:
                 reproj_k, _ = reprojection(
                     pred_k, x_now, y_now, th_now,
                     MAP_X_LIMIT, MAP_Y_LIMIT
-                )                           # 보통 (B, 1, H, W)
+                ) 
 
                 pred_mean_k = reproj_k.squeeze()   # (B, H, W) or (H,W) if B=1
                 fin_prediction_map[k, 0] = pred_mean_k
             
             fin_prediction_map, _ = torch.max(fin_prediction_map, dim=0) # (1, H, W)
-
 
             ##
             ## Publish occupied people data: prediction
