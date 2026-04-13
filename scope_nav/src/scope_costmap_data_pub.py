@@ -7,6 +7,7 @@
 
 import threading
 import numpy as np
+import rospy
 import torch
 
 import rclpy
@@ -70,7 +71,12 @@ class ScopeCostmap(Node):
 
         qos10 = QoSProfile(depth=10)
 
-        self.odom_sub = self.create_subscription(Odometry, 'odom', self.odom_cb, qos10)
+        self.declare_parameter('statistics_file', '')
+        occ_entropy_path = self.get_parameter('statistics_file').value
+        truncnorm_skewcauchy_occ_entropy = np.load(occ_entropy_path)
+        self.c_entropy_table = torch.tensor(truncnorm_skewcauchy_occ_entropy).to(device)
+        self.p_bins = torch.linspace(0, 1, steps=16).to(device)
+        
         self.scope_input_data_sub = self.create_subscription(
             ScopeInputData, 'scope_input_data', self.scope_input_data_callback, qos10
         )
@@ -79,8 +85,8 @@ class ScopeCostmap(Node):
         self.scope_prediction_pub = self.create_publisher(People, 'scope_prediction', QoSProfile(depth=1))
         self.local_map_pub = self.create_publisher(OccupancyGrid, 'local_map', QoSProfile(depth=1))
 
-        # model
-        self.model = scope_plus_plus( 
+        # So-SCOPE model:
+        self.model = so_scope( 
             input_channels=NUM_INPUT_CHANNELS,
             latent_dim=NUM_LATENT_DIM,
             output_channels=NUM_OUTPUT_CHANNELS,
