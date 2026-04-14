@@ -1,4 +1,2 @@
 # folder
-scope_nav/src/model/
-
-.*
+*.pyc

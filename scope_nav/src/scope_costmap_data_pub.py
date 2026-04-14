@@ -66,12 +66,6 @@ class ScopeCostmap:
         self.velocities = []
         self.header = Header() 
 
-        # read truncnorm & skewcauchy model parameters:
-        occ_entropy_path = rospy.get_param('~statistics_file', './model/truncnorm_skewcauchy_statistics_tables/truncnorm_skewcauchy_entropy_pred_time_6.npy')
-        truncnorm_skewcauchy_occ_entropy = np.load(occ_entropy_path)
-        self.c_entropy_table = torch.tensor(truncnorm_skewcauchy_occ_entropy).to(device)
-        self.p_bins = torch.linspace(0, 1, steps=16).to(device)
-        
         # initialize ROS objects
         self.scope_input_data_sub = rospy.Subscriber("scope_input_data", ScopeInputData, self.scope_input_data_callback)
     
@@ -92,7 +86,7 @@ class ScopeCostmap:
         self.model.eval()
         # load the weights
         #
-        model_file = rospy.get_param('~model_file', "./model/model60.pth")
+        model_file = rospy.get_param('~model_file', None)
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
         print("Finish loading SO-SCOPE model.", device)
@@ -139,6 +133,7 @@ class ScopeCostmap:
             
             # create occupancy maps:
             batch_size = scans.size(0)
+            prediction_maps = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
             # multi-step prediction: 10 time steps:
             # Create input grid maps: 
             input_gridMap = LocalMap(X_lim = MAP_X_LIMIT, 
@@ -151,7 +146,7 @@ class ScopeCostmap:
             obs_pos_N = positions[:, SEQ_LEN-1]
             vel_N = velocities[:, SEQ_LEN-1]
             # Predict the future origin pose of the robot: t+n 
-            T = 6 #SEQ_LEN #int(t_pred)
+            T = 10 #SEQ_LEN #int(t_pred)
             noise_std = [0, 0, 0]#[0.00111, 0.00112, 0.02319]
             pos_origin = input_gridMap.origin_pose_prediction(vel_N, obs_pos_N, T, noise_std)
             # robot positions:
@@ -176,25 +171,25 @@ class ScopeCostmap:
             # feed the batch to the network:
             num_samples = 1
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
-            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
+            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)\
+            
+            prediction_seq = []
 
             for t in range(T):  
                 prediction, _ = self.model(inputs_samples, inputs_occ_map_samples)
                 prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
                 inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
+                prediction_seq.append(prediction)
+            
+            prediction_seq = torch.cat(prediction_seq, dim=1)
 
-            predictions = prediction.detach().clone().squeeze(1)
-            # mean and std:
-            pred_samples = prediction.detach().clone().squeeze(1)
-            pred_mean = pred_samples.mean(dim=0, keepdim=True) 
-            pred_entropy = torch.zeros_like(predictions)
-            for k in range(15):
-                c_entropy = self.c_entropy_table[k]
-                idx = predictions <= self.p_bins[k+1]
-                idx_size = torch.sum(idx==True)
-                c_occ_entropys = -1*torch.ones(idx_size).to(device) * c_entropy
-                pred_entropy[idx] = c_occ_entropys.to(torch.float32)
-                predictions[idx] = 100
+            for t in range(SEQ_LEN):
+                pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
+                prediction_maps[t, 0] = pred_mean.squeeze()
+
+            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
+
+            predictions = merged_prediction_map.clone()
             
             ## pubish occupied people data: prediction
             occ_scope_pred = People()
@@ -203,8 +198,8 @@ class ScopeCostmap:
             occ_scope_pred.header.frame_id = "hokuyo_link"
             
             # get occupied indicies:
-            pred_mean_occ = pred_mean.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.5] = 0
+            pred_mean_occ = merged_prediction_map.squeeze()
+            pred_mean_occ[pred_mean_occ < 0.3] = 0
             idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
@@ -223,36 +218,8 @@ class ScopeCostmap:
             # publish prediction map:
             self.scope_prediction_pub.publish(occ_scope_pred)
 
-            ## pubish occupied people data: uncertainty
-            occ_scope_entropy = People()
-            #occ_scope.header = self.header
-            occ_scope_entropy.header.stamp = rospy.Time.now() 
-            occ_scope_entropy.header.frame_id = "hokuyo_link"
-            
-            # get occupied indicies:
-            pred_entropy_occ = pred_entropy.squeeze()
-            pred_entropy_occ[pred_entropy_occ < 0.1] = 0
-            idx_occ = torch.nonzero(pred_entropy_occ)
-
-            # translate grid indicies to the physical positions:
-            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
-            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
-            px = px.detach().cpu().numpy()
-            py = py.detach().cpu().numpy()
-            idx_occ = idx_occ.detach().cpu().numpy()
-     
-            for i in range(len(px)):
-                o_pose = Person()
-                o_pose.position.x = px[i]
-                o_pose.position.y = py[i]
-                o_pose.position.z = 0
-                occ_scope_entropy.people.append(o_pose)
-            # publish uncertainty map:
-            self.scope_uncertainty_pub.publish(occ_scope_entropy)
-
             ## get the output:
             pred_mean_map = pred_mean.detach().cpu().numpy()
-            pred_entropy_map = pred_entropy.detach().cpu().numpy()
 
             # # publish scope output data:
             # prediction_map = np.concatenate((pred_mean_map, pred_entropy_map), axis=1)
