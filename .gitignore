@@ -13,5 +13,4 @@ wandb/
 
 #bash files
 *.sh
-.pyc
-.pth
+*.pyc

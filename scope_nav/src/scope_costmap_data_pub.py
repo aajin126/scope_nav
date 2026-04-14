@@ -67,7 +67,7 @@ class ScopeCostmap:
         self.header = Header() 
 
         # read truncnorm & skewcauchy model parameters:
-        occ_entropy_path = rospy.get_param('~statistics_file', './model/truncnorm_skewcauchy_statistics_tables/truncnorm_skewcauchy_entropy_pred_time_6.npy')
+        occ_entropy_path = rospy.get_param('~statistics_file', None)
         truncnorm_skewcauchy_occ_entropy = np.load(occ_entropy_path)
         self.c_entropy_table = torch.tensor(truncnorm_skewcauchy_occ_entropy).to(device)
         self.p_bins = torch.linspace(0, 1, steps=16).to(device)
@@ -82,7 +82,7 @@ class ScopeCostmap:
 
         # So-SCOPE model:
         # instantiate a model:
-        self.model = scope_plus_plus(input_channels=NUM_INPUT_CHANNELS,
+        self.model = so_scope(input_channels=NUM_INPUT_CHANNELS,
                         latent_dim=NUM_LATENT_DIM,
                         output_channels=NUM_OUTPUT_CHANNELS)
         # moves the model to device (cpu in our case so no change):
@@ -92,11 +92,11 @@ class ScopeCostmap:
         self.model.eval()
         # load the weights
         #
-        model_file = rospy.get_param('~model_file', "./model/model60.pth")
+        model_file = rospy.get_param('~model_file', None)
         checkpoint = torch.load(model_file, map_location=device)
         self.model.load_state_dict(checkpoint['model'])
         print("Finish loading SO-SCOPE model.", device)
-
+ 
         # Lock
         self.lock = threading.Lock() # lock to keep twist/time thread safe
 
@@ -139,6 +139,7 @@ class ScopeCostmap:
             
             # create occupancy maps:
             batch_size = scans.size(0)
+            prediction_maps = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
             # multi-step prediction: 10 time steps:
             # Create input grid maps: 
             input_gridMap = LocalMap(X_lim = MAP_X_LIMIT, 
@@ -151,7 +152,7 @@ class ScopeCostmap:
             obs_pos_N = positions[:, SEQ_LEN-1]
             vel_N = velocities[:, SEQ_LEN-1]
             # Predict the future origin pose of the robot: t+n 
-            T = 6 #SEQ_LEN #int(t_pred)
+            T = 10 #SEQ_LEN #int(t_pred)
             noise_std = [0, 0, 0]#[0.00111, 0.00112, 0.02319]
             pos_origin = input_gridMap.origin_pose_prediction(vel_N, obs_pos_N, T, noise_std)
             # robot positions:
@@ -179,19 +180,22 @@ class ScopeCostmap:
             num_samples = 1 
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
 
-            # for scope_plus_plus
-            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
-
-            for t in range(T):  
-                #prediction = self.model(inputs_samples)
-                # for scope_plus_plus:
-                prediction, kl_loss = self.model(inputs_samples, inputs_occ_map_samples)
-                prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
+            prediction_seq = []
+            for t in range(T):
+                prediction = self.model(inputs_samples)
+                prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)  # (B,1,1,H,W)
                 inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
+                prediction_seq.append(prediction)
+            
+            prediction_seq = torch.cat(prediction_seq, dim=1)
 
-            predictions = prediction.detach().clone().squeeze(1)
-            # mean and std:
-            pred_mean = prediction.detach().clone().squeeze(1) 
+            for t in range(SEQ_LEN):
+                pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
+                prediction_maps[t, 0] = pred_mean.squeeze()
+
+            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
+
+            predictions = merged_prediction_map.clone()
             pred_entropy = torch.zeros((1, 1, IMG_SIZE, IMG_SIZE)).to(device)
             for k in range(15):
                 c_entropy = self.c_entropy_table[k]
