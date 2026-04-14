@@ -58,14 +58,14 @@ scope_prediction_layer:
    factor:                5.0     #  double, default: 5.0 -  Factor with which to scale the velocity
    keep_time:             0.5    #  double, default: 0.75
 
-# scope_uncertainty_layer:
-#   people_topic: scope_uncertainty #sogmp_prediction
-#   enabled:               true
-#   cutoff:                115    #  double, default: 10.0 - Smallest value to publish on costmap adjustments
-#   amplitude:             200   #  double, default: 77.0 - Amplitude of adjustments at peak
-#   covariance:            0.25    #  double, default: 0.25 - Covariance of adjustments
-#   factor:                5.0     #  double, default: 5.0 -  Factor with which to scale the velocity
-#   keep_time:             0.5    #  double, default: 0.75
+scope_uncertainty_layer:
+  people_topic: scope_uncertainty #sogmp_prediction
+  enabled:               true
+  cutoff:                115    #  double, default: 10.0 - Smallest value to publish on costmap adjustments
+  amplitude:             200   #  double, default: 77.0 - Amplitude of adjustments at peak
+  covariance:            0.25    #  double, default: 0.25 - Covariance of adjustments
+  factor:                5.0     #  double, default: 5.0 -  Factor with which to scale the velocity
+  keep_time:             0.5    #  double, default: 0.75
 
   
 
