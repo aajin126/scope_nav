@@ -66,6 +66,12 @@ class ScopeCostmap:
         self.velocities = []
         self.header = Header() 
 
+        # read truncnorm & skewcauchy model parameters:
+        occ_entropy_path = rospy.get_param('~statistics_file', None)
+        truncnorm_skewcauchy_occ_entropy = np.load(occ_entropy_path)
+        self.c_entropy_table = torch.tensor(truncnorm_skewcauchy_occ_entropy).to(device)
+        self.p_bins = torch.linspace(0, 1, steps=16).to(device)
+
         # initialize ROS objects
         self.scope_input_data_sub = rospy.Subscriber("scope_input_data", ScopeInputData, self.scope_input_data_callback)
     
@@ -146,7 +152,7 @@ class ScopeCostmap:
             obs_pos_N = positions[:, SEQ_LEN-1]
             vel_N = velocities[:, SEQ_LEN-1]
             # Predict the future origin pose of the robot: t+n 
-            T = 10 #SEQ_LEN #int(t_pred)
+            T = 6 #SEQ_LEN #int(t_pred)
             noise_std = [0, 0, 0]#[0.00111, 0.00112, 0.02319]
             pos_origin = input_gridMap.origin_pose_prediction(vel_N, obs_pos_N, T, noise_std)
             # robot positions:
@@ -179,18 +185,19 @@ class ScopeCostmap:
                 prediction, _ = self.model(inputs_samples, inputs_occ_map_samples)
                 prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)
                 inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
-                prediction_seq.append(prediction)
-            
-            prediction_seq = torch.cat(prediction_seq, dim=1)
 
-            for t in range(SEQ_LEN):
-                pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
-                prediction_maps[t, 0] = pred_mean.squeeze()
+            predictions = prediction.detach().clone().squeeze(1)
+            # mean and std:
+            pred_mean = prediction.detach().clone().squeeze(1) 
+            pred_entropy = torch.zeros((1, 1, IMG_SIZE, IMG_SIZE)).to(device)
+            for k in range(15):
+                c_entropy = self.c_entropy_table[k]
+                idx = predictions <= self.p_bins[k+1]
+                idx_size = torch.sum(idx==True)
+                c_occ_entropys = -1*torch.ones(idx_size).to(device) * c_entropy
+                pred_entropy[idx] = c_occ_entropys.to(torch.float32)
+                predictions[idx] = 100
 
-            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
-
-            predictions = merged_prediction_map.clone()
-            
             ## pubish occupied people data: prediction
             occ_scope_pred = People()
             #occ_scope_pred.header = self.header
@@ -198,8 +205,8 @@ class ScopeCostmap:
             occ_scope_pred.header.frame_id = "hokuyo_link"
             
             # get occupied indicies:
-            pred_mean_occ = merged_prediction_map.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.3] = 0
+            pred_mean_occ = pred_mean.squeeze()
+            pred_mean_occ[pred_mean_occ < 0.5] = 0
             idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
@@ -218,16 +225,21 @@ class ScopeCostmap:
             # publish prediction map:
             self.scope_prediction_pub.publish(occ_scope_pred)
 
+            ## pubish occupied people data: uncertainty
+            occ_scope_entropy = People()
+            #occ_scope.header = self.header
+            occ_scope_entropy.header.stamp = rospy.Time.now() 
+            occ_scope_entropy.header.frame_id = "hokuyo_link"
+            
+            # get occupied indicies:
+            pred_entropy_occ = pred_entropy.squeeze()
+            pred_entropy_occ[pred_entropy_occ < 0.1] = 0
+            idx_occ = torch.nonzero(pred_entropy_occ)
+
             ## get the output:
             pred_mean_map = pred_mean.detach().cpu().numpy()
+            pred_entropy_map = pred_entropy.detach().cpu().numpy()
 
-            # # publish scope output data:
-            # prediction_map = np.concatenate((pred_mean_map, pred_entropy_map), axis=1)
-            # self.occ_grid = prediction_map.reshape(-1).tolist()
-            # scope_output_data = ScopeOutputData()
-            # scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
-            # self.scope_output_data_pub.publish(scope_output_data)
-        
             # visualize the local occupancy map:
             # create message:
             occ_map = OccupancyGrid()
