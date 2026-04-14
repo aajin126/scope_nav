@@ -27,6 +27,9 @@ from local_occ_grid_map import LocalMap
 from reproj import reprojection
 import torch
 import threading
+from omegaconf import OmegaConf
+from util import instantiate_from_config
+from models.ddim import DDIMSampler
 
 # Constants
 IMG_SIZE = 64 #80
@@ -68,6 +71,7 @@ class ScopeCostmap:
         self.velocities = []
         self.header = Header() 
         self.tf_listener = None
+        print(os.getcwd())
 
         # initialize ROS objects
         self.scope_input_data_sub = rospy.Subscriber("scope_input_data", ScopeInputData, self.scope_input_data_callback)
@@ -76,23 +80,25 @@ class ScopeCostmap:
         self.scope_prediction_pub = rospy.Publisher('scope_prediction', People, queue_size=1, latch=False)
         self.scope_uncertainty_pub = rospy.Publisher('scope_uncertainty', People, queue_size=1, latch=False)
         self.local_map_pub = rospy.Publisher('local_map', OccupancyGrid, queue_size=1, latch=False)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+        base_configs = rospy.get_param("~base_configs")
+        if isinstance(base_configs, str):
+            base_configs = [base_configs]
+        ckpt_path = rospy.get_param("~model_file")
+        self.ddim_steps = rospy.get_param("~ddim_steps", 8)
+        self.ddim_eta = rospy.get_param("~ddim_eta", 1.0)
 
-        # instantiate a model:
-        self.model = scope_plus_plus(input_channels=NUM_INPUT_CHANNELS,
-                        latent_dim=NUM_LATENT_DIM,
-                        output_channels=NUM_OUTPUT_CHANNELS)
-        # moves the model to device (cpu in our case so no change):
-        self.model.to(device)
-        # set the model to evaluate
-        #
+        configs = [OmegaConf.load(p) for p in base_configs]
+        config = OmegaConf.merge(*configs)
+
+        self.model = instantiate_from_config(config.model).to(self.device)
+
+        state_dict = torch.load(ckpt_path, map_location="cpu")
+        self.model.load_state_dict(state_dict, strict=False)
         self.model.eval()
-        # load the weights
-        #
-        model_file = rospy.get_param('~model_file', "./model/best_val.pth")
-        checkpoint = torch.load(model_file, map_location=device)
-        self.model.load_state_dict(checkpoint['model'])
-        print("Finish loading Predocc model.", device)
+
+        self.sampler = DDIMSampler(self.model)
 
         # Lock
         self.lock = threading.Lock() # lock to keep twist/time thread safe
@@ -165,11 +171,23 @@ class ScopeCostmap:
             # feed the batch to the network:
             num_samples = 1
             inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
-            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1,1)
+            inputs_occ_map_samples = input_occ_grid_map.repeat(num_samples,1,1,1)
 
-            prediction, _ = self.model(inputs_samples, inputs_occ_map_samples)
-
-            prediction_seq = prediction[:, :SEQ_LEN]
+            c, _ = self.model.get_encoding(inputs_samples, None, inputs_occ_map_samples)
+            c_exp = c.repeat_interleave(self.model.first_stage_model.seq_len, dim=0) # (B*T, 32, 16, 16)
+ 
+            # DDIM sampling from random noise
+            with self.model.ema_scope("Evaluation"):
+                z_samples, _ = self.model.sample_log(
+                    cond=c_exp,
+                    batch_size=c_exp.shape[0],
+                    ddim=True,
+                    ddim_steps=self.ddim_steps,
+                    eta=self.ddim_eta
+                )
+            
+            # Decode latent to sequence
+            prediction_seq = self.model.decode_first_stage(z_samples)  # (num_samples, T, 1, H, W)
 
             for t in range(SEQ_LEN):
                 pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
@@ -196,19 +214,6 @@ class ScopeCostmap:
             x_now = x_now[:, 0]
             y_now = y_now[:, 0]
             th_now = th_now[:, 0]
-
-            #fin_prediction_map = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
-
-            # for k in range(SEQ_LEN):
-            #     pred_k = prediction[:, k]   # (B, 1, H, W)
-            #     reproj_k, _ = reprojection(
-            #         pred_k, x_now, y_now, th_now,
-            #         MAP_X_LIMIT, MAP_Y_LIMIT
-            #     )
-            #     pred_mean_k = reproj_k.squeeze()   # (B, H, W) or (H,W) if B=1
-            #     fin_prediction_map[k, 0] = pred_mean_k
-
-            # fin_prediction_map, _ = torch.max(fin_prediction_map, dim=0) # (1, H, W)
 
             fin_prediction_map, _ = reprojection(
                 merged_prediction_map,

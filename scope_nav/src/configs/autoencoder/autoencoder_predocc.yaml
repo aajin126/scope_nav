@@ -6,7 +6,7 @@ model:
     embed_dim: 2
     seq_len: 10
     lossconfig:
-      target: modules.losses.AELoss
+      target: losses.AELoss
       params:
         kl_weight: 0.000001
 

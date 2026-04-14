@@ -1,6 +1,6 @@
 model:
   base_learning_rate: 1.0e-04
-  target: models.diffusion.ddpm.PredOccLatentDiffusion
+  target: models.ddpm.PredOccLatentDiffusion
   params:
     linear_start: 0.0015
     linear_end: 0.0195
@@ -15,7 +15,7 @@ model:
     convlstm_hidden_dim: 33
     scale_factor: 0.374106
 
-    first_stage_ckpt_path: "./pretrained_models/first_stage_models/AE/v7.0/model.ckpt"
+    first_stage_ckpt_path: "/home/glab/dyna_ws/src/scope_nav/scope_nav/src/model/predocc_diff/ae7.0/model.pth"
 
     first_stage_config:
       target: models.autoencoder.SequenceAutoencoderKL
@@ -30,7 +30,7 @@ model:
         num_residual_layers: 2
         num_residual_hiddens: 64
         lossconfig:
-          target: modules.losses.AELoss
+          target: losses.AELoss
           params:
             kl_weight: 1.0e-06
 
@@ -48,7 +48,7 @@ model:
 
 
     unet_config:
-      target: modules.diffusionmodules.unet_latent_shift.UNetModel
+      target: diffusionmodules.unet_latent_shift.UNetModel
       params:
         image_size: 16
         in_channels: 35  # 34 : x_noisy(2) + cond(32) # 4 : x_noisy(2) + cond(2)
@@ -64,39 +64,3 @@ model:
         use_spatial_transformer: False
         use_checkpoint: True
         legacy: False
-data:
-  target: main.DataModuleFromConfig
-  params:
-    batch_size: 1
-    num_workers: 4
-    test:
-      target: data.dataloader.PredOccDataset
-      params:
-        data_root: "../data/OGM-datasets/OGM-Turtlebot2/test/"
-        split: "test"
-        
-lightning:
-  trainer:
-    max_epochs: 100
-    check_val_every_n_epoch: 1
-
-  callbacks:
-    image_logger:
-      target: main.ImageLogger
-      params:
-        batch_frequency: 50
-    
-    train_loss_epoch_checkpoint:
-      target: pytorch_lightning.callbacks.ModelCheckpoint
-      params:
-        filename: "trainloss-{epoch:06d}"
-        monitor: "train/loss_epoch"
-        save_top_k: 5
-        save_last: false
-
-
-  modelcheckpoint:
-    params:
-      monitor: "val/loss"
-      save_top_k: 10
-      save_last: true

@@ -56,7 +56,7 @@ scope_prediction_layer:
    amplitude:             200   #  double, default: 77.0 - Amplitude of adjustments at peak
    covariance:            0.02    #  double, default: 0.25 - Covariance of adjustments
    factor:                5.0     #  double, default: 5.0 -  Factor with which to scale the velocity
-   keep_time:             0.5    #  double, default: 0.75
+   keep_time:             0.1    #  double, default: 0.75
 
 # scope_uncertainty_layer:
 #   people_topic: scope_uncertainty #sogmp_prediction

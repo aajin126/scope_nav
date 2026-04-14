@@ -21,7 +21,7 @@
 # import pytorch modules
 #
 import torch
-from bresenham_torch import bresenhamline
+from models.bresenham_torch import bresenhamline
 
 #
 # end of function
