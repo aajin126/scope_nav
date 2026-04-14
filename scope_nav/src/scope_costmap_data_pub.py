@@ -46,8 +46,7 @@ MAP_Y_LIMIT = [-3.2, 3.2]#[-4, 4]   # Map limits on the y-axis
 RESOLUTION = 0.1        # Grid resolution in [m]'
 TRESHOLD_P_OCC = 0.8    # Occupancy threshold
 
-# for reproducibility, we seed the rng
-#
+
 set_seed(SEED1)        
 # set the device to use GPU if available:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
