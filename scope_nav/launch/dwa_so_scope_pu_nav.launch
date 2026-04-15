@@ -17,16 +17,16 @@
   <arg name="initial_pose_a" default="0.13"/> -->
 
   <!-- xcorridor -->
-  <!--arg name="world_file" default="xcorridor" />
+  <!-- <arg name="world_file" default="xcorridor" />
   <arg name="scene_file" default="$(find sim_arena)/worlds/$(arg world_file)/scenarios/default.xml"/>
   <arg name="world_name" default="$(find sim_arena)/worlds/$(arg world_file)/worlds/$(arg world_file).world"/>
   <arg name="map_file" default="$(find sim_arena)/worlds/$(arg world_file)/map/map.yaml" />
   <arg name="pose_initial_x" default="0.0"/> 
-  <arg name="pose_initial_y" default="4.0"/>
-  <arg name="pose_initial_theta" default="-1.57"/>
+  <arg name="pose_initial_y" default="-4.0"/>
+  <arg name="pose_initial_theta" default="1.57"/>
   <arg name="initial_pose_x" default="0.0"/>
-  <arg name="initial_pose_y" default="4.0"/>
-  <arg name="initial_pose_a" default="-1.57"/-->
+  <arg name="initial_pose_y" default="-4.0"/>
+  <arg name="initial_pose_a" default="1.57"/> -->
 
   <!-- freiburg -->
   <!-- <arg name="scene_file" default="$(find pedsim_simulator)/scenarios/freiburg.xml"/>  
