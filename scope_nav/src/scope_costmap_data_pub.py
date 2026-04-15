@@ -231,7 +231,7 @@ class ScopeCostmap:
 
             # get occupied indicies:
             pred_mean_occ = fin_prediction_map.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.5] = 0
+            pred_mean_occ[pred_mean_occ < 0.1] = 0
             idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
