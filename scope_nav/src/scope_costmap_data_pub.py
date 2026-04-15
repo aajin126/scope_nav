@@ -211,7 +211,7 @@ class ScopeCostmap:
             
             # get occupied indicies:
             pred_mean_occ = merged_prediction_map.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.3] = 0
+            pred_mean_occ[pred_mean_occ < 0.5] = 0
             idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
@@ -258,7 +258,7 @@ class ScopeCostmap:
             self.scope_uncertainty_pub.publish(occ_scope_entropy)
 
             ## get the output:
-            pred_mean_map = pred_mean.detach().cpu().numpy()
+            pred_mean_map = merged_prediction_map.detach().cpu().numpy()
             pred_entropy_map = pred_entropy.detach().cpu().numpy()
 
             # publish scope output data:
