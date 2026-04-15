@@ -43,7 +43,7 @@ obstacle_layer:
 inflation_layer:
   enabled:              true
   cost_scaling_factor:  5.0  # exponential rate at which the obstacle cost drops off (default: 10)
-  inflation_radius:     0.3  # max. distance from an obstacle at which costs are incurred for planning paths.
+  inflation_radius:     0.2  # max. distance from an obstacle at which costs are incurred for planning paths.
 
 static_layer:
   enabled:              true
@@ -54,7 +54,7 @@ scope_prediction_layer:
    enabled:               true
    cutoff:                115    #  double, default: 10.0 - Smallest value to publish on costmap adjustments
    amplitude:             200   #  double, default: 77.0 - Amplitude of adjustments at peak
-   covariance:            0.05    #  double, default: 0.25 - Covariance of adjustments
+   covariance:            0.02    #  double, default: 0.25 - Covariance of adjustments
    factor:                5.0     #  double, default: 5.0 -  Factor with which to scale the velocity
    keep_time:             0.5    #  double, default: 0.75
 
