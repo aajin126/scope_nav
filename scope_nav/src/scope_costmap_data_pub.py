@@ -238,7 +238,7 @@ class ScopeCostmap:
             
             # get occupied indicies:
             pred_entropy_occ = pred_entropy.squeeze()
-            pred_entropy_occ[pred_entropy_occ < 0.1] = 0
+            pred_entropy_occ[pred_entropy_occ < 0.5] = 0
             idx_occ = torch.nonzero(pred_entropy_occ)
 
             # translate grid indicies to the physical positions:
