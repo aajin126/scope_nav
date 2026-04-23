@@ -17,6 +17,7 @@ from people_msgs.msg import People, Person
 from nav_msgs.msg import Odometry, OccupancyGrid
 from std_msgs.msg import Header
 import tf.transformations as tft
+from vox_msgs.msg import VoxGrid
 # python: 
 import numpy as np
 import math
@@ -24,12 +25,13 @@ import math
 #
 from model import *
 from local_occ_grid_map import LocalMap
-from reproj import reprojection
+from reproj import reprojection, reprojection_to_map
 import torch
 import threading
 from omegaconf import OmegaConf
 from util import instantiate_from_config
 from models.ddim import DDIMSampler
+import time
 
 # Constants
 IMG_SIZE = 64 #80
@@ -80,6 +82,7 @@ class ScopeCostmap:
         self.scope_prediction_pub = rospy.Publisher('scope_prediction', People, queue_size=1, latch=False)
         self.scope_uncertainty_pub = rospy.Publisher('scope_uncertainty', People, queue_size=1, latch=False)
         self.local_map_pub = rospy.Publisher('local_map', OccupancyGrid, queue_size=1, latch=False)
+        self.voxgrid_pub = rospy.Publisher('plan_costmap_3D', VoxGrid, queue_size=1, latch=False)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         base_configs = rospy.get_param("~base_configs")
@@ -142,6 +145,9 @@ class ScopeCostmap:
             batch_size = scans.size(0)
             prediction_maps = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
             # one prediction: 10 time steps:
+
+            #t0 = time.perf_counter()
+
             # Create input grid maps: 
             input_gridMap = LocalMap(X_lim = MAP_X_LIMIT, 
                         Y_lim = MAP_Y_LIMIT, 
@@ -193,7 +199,6 @@ class ScopeCostmap:
                 pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
                 prediction_maps[t, 0] = pred_mean.squeeze()
 
-            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
             ##
             ## final prediction map: transform to the current robot frame
             ##
@@ -215,6 +220,8 @@ class ScopeCostmap:
             y_now = y_now[:, 0]
             th_now = th_now[:, 0]
 
+            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
+
             fin_prediction_map, _ = reprojection(
                 merged_prediction_map,
                 x_now,
@@ -223,6 +230,75 @@ class ScopeCostmap:
                 MAP_X_LIMIT,
                 MAP_Y_LIMIT,
             )
+
+            # t1 = time.perf_counter()
+            # print(f"[DEBUG] bit-packing time: {(t1 - t0)*1000:.3f} ms")
+
+            pos_origin_map = pos_origin[0]
+            x0 = pos_origin_map[0]
+            y0 = pos_origin_map[1]
+            th = pos_origin_map[2]
+
+            xmin = MAP_X_LIMIT[0]
+            ymin = MAP_Y_LIMIT[0]
+
+            corner_x = x0 + torch.cos(th) * xmin - torch.sin(th) * ymin
+            corner_y = y0 + torch.sin(th) * xmin + torch.cos(th) * ymin
+
+            reprojected_maps = []
+            for t in range(SEQ_LEN):
+                pred_map_t = prediction_maps[t:t+1]
+                pos_origin_map = pos_origin[0]
+                dx = pos_origin_map[0]
+                dy = pos_origin_map[1]
+                dtheta = pos_origin_map[2]
+                fin_map_t = reprojection_to_map(
+                    source_map=pred_map_t,
+                    dx=-x0,
+                    dy=-y0,
+                    dtheta=-th,
+                    src_x_lim=MAP_X_LIMIT,
+                    src_y_lim=MAP_Y_LIMIT,
+                    map_origin_x=corner_x,
+                    map_origin_y=corner_y,
+                    resolution=RESOLUTION,
+                    out_h=IMG_SIZE,
+                    out_w=IMG_SIZE,
+                )
+                reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))  # (H, W)
+
+            # (T, H, W) -> uint8 [0,255]
+            reprojected_stack = torch.stack(reprojected_maps, dim=0)   # (T, H, W)
+            # vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()  # (T, H, W)
+            vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()   # (T, X, Y)
+            vox_data = np.transpose(vox_data, (0, 2, 1))  # (T, Y, X)         
+
+            # VoxGrid.msg fields (vox_msgs/VoxGrid):
+            # std_msgs/Header  header 
+            # uint32 height
+            # uint32 width
+            # uint32 depth
+            # float32 dl
+            # float32 dt
+            # geometry_msgs/Point origin
+            # float32 theta
+            # uint8[] data
+
+            vox_msg = VoxGrid()
+            vox_msg.header.stamp = rospy.Time.now()
+            vox_msg.header.frame_id = "map"
+            vox_msg.height = IMG_SIZE
+            vox_msg.width = IMG_SIZE
+            vox_msg.depth = SEQ_LEN
+            vox_msg.dl = RESOLUTION
+            vox_msg.dt = 0.1
+            vox_msg.origin.x = corner_x
+            vox_msg.origin.y = corner_y
+            vox_msg.origin.z = 0.0
+            vox_msg.theta = 0.0
+            vox_msg.data = vox_data.flatten().tolist()
+
+            self.voxgrid_pub.publish(vox_msg)
 
             occ_scope_pred = People()
             #occ_scope_pred.header = self.header

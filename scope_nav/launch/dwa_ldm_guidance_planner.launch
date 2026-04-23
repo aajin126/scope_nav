@@ -8,11 +8,11 @@
   <!-- <arg name="scene_file" default="$(find pedsim_simulator)/scenarios/eng_hall.xml"/>  
   <arg name="world_name" default="$(find pedsim_gazebo_plugin)/worlds/eng_hall.world"/>
   <arg name="map_file" default="$(find robot_gazebo)/maps/gazebo_eng_lobby/gazebo_eng_lobby.yaml"/>
-  <arg name="pose_initial_x" default="1.0"/> 
-  <arg name="pose_initial_y" default="1.0"/>
+  <arg name="pose_initial_x" default="13.5"/> 
+  <arg name="pose_initial_y" default="21.0"/>
   <arg name="pose_initial_theta" default="0.0"/>
-  <arg name="initial_pose_x" default="1.0"/>
-  <arg name="initial_pose_y" default="0.0"/>
+  <arg name="initial_pose_x" default="10.5"/>
+  <arg name="initial_pose_y" default="21.0"/>
   <arg name="initial_pose_a" default="0.13"/> -->
 
   <!-- xcorridor -->
@@ -26,6 +26,17 @@
   <arg name="initial_pose_x" default="0.0"/>
   <arg name="initial_pose_y" default="4.0"/>
   <arg name="initial_pose_a" default="-1.57"/-->
+
+  <!-- freiburg -->
+  <!-- <arg name="scene_file" default="$(find pedsim_simulator)/scenarios/freiburg.xml"/>  
+  <arg name="world_name" default="$(find pedsim_gazebo_plugin)/worlds/freiburg.world"/>
+  <arg name="map_file" default="$(find robot_gazebo)/maps/gazebo_freiburg/gazebo_freiburg.yaml"/>
+  <arg name="pose_initial_x" default="10.0"/> 
+  <arg name="pose_initial_y" default="23.0"/>
+  <arg name="pose_initial_theta" default="-1.57"/>
+  <arg name="initial_pose_x" default="7.0"/>
+  <arg name="initial_pose_y" default="6.0"/>
+  <arg name="initial_pose_a" default="-1.57"/> -->
 
   <!-- experiment_room_2 -->
   <arg name="world_file" default="experiment_room_2" />
@@ -50,7 +61,7 @@
   </include>
 
   <!-- AMCL -->
-  <include file="$(find scope_nav)/launch/amcl_demo_teb.launch">
+  <include file="$(find scope_nav)/launch/amcl_demo.launch">
     <arg name="map_file" value="$(arg map_file)"/>
     <arg name="initial_pose_x" value="$(arg initial_pose_x)"/>
     <arg name="initial_pose_y" value="$(arg initial_pose_y)"/>
@@ -63,7 +74,7 @@
   </node-->
 
   <!-- Move base -->
-  <include file="$(find scope_nav)/launch/includes/move_base_teb.launch.xml"/>
+  <include file="$(find scope_nav)/launch/includes/move_base.launch.xml"/>
 
   <!-- Goal visualization -->
   <node pkg="scope_nav" name="goal_visualize" type="goal_visualize.py" output="screen" />
@@ -72,6 +83,9 @@
   <include file="$(find scope_nav)/launch/scope_costmap_pub.launch">
     <arg name="model_file" value="$(arg model_file)"/>
   </include>
+
+  <!-- Guidance Planner -->
+  <!-- <include file="$(find guidance_planner)/launch/guidance_planner.launch"/> -->
 
   <!-- Pedestrian Publisher -->
   <node name="track_ped_pub" pkg="scope_nav" type="track_ped_pub.py" output="screen"/>
