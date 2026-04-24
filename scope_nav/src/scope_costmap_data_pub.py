@@ -234,16 +234,35 @@ class ScopeCostmap:
             # t1 = time.perf_counter()
             # print(f"[DEBUG] bit-packing time: {(t1 - t0)*1000:.3f} ms")
 
-            pos_origin_map = pos_origin[0]
-            x0 = pos_origin_map[0]
-            y0 = pos_origin_map[1]
-            th = pos_origin_map[2]
-
             xmin = MAP_X_LIMIT[0]
+            xmax = MAP_X_LIMIT[1]
             ymin = MAP_Y_LIMIT[0]
+            ymax = MAP_Y_LIMIT[1]
 
-            corner_x = x0 + torch.cos(th) * xmin - torch.sin(th) * ymin
-            corner_y = y0 + torch.sin(th) * xmin + torch.cos(th) * ymin
+            corners_local = torch.tensor([
+                [xmin, ymin],
+                [xmin, ymax],
+                [xmax, ymin],
+                [xmax, ymax],
+            ], device=pos_origin.device, dtype=pos_origin.dtype)
+
+            x0 = pos_origin[0, 0]
+            y0 = pos_origin[0, 1]
+            th = pos_origin[0, 2]
+
+            ct = torch.cos(th)
+            st = torch.sin(th)
+
+            cx = corners_local[:, 0]
+            cy = corners_local[:, 1]
+
+            corners_x_map = x0 + ct * cx - st * cy
+            corners_y_map = y0 + st * cx + ct * cy
+
+            map_x_min = corners_x_map.min()
+            map_x_max = corners_x_map.max()
+            map_y_min = corners_y_map.min()
+            map_y_max = corners_y_map.max()
 
             reprojected_maps = []
             for t in range(SEQ_LEN):
@@ -253,17 +272,18 @@ class ScopeCostmap:
                 dy = pos_origin_map[1]
                 dtheta = pos_origin_map[2]
                 fin_map_t = reprojection_to_map(
-                    source_map=pred_map_t,
-                    dx=-x0,
-                    dy=-y0,
-                    dtheta=-th,
-                    src_x_lim=MAP_X_LIMIT,
-                    src_y_lim=MAP_Y_LIMIT,
-                    map_origin_x=corner_x,
-                    map_origin_y=corner_y,
-                    resolution=RESOLUTION,
-                    out_h=IMG_SIZE,
-                    out_w=IMG_SIZE,
+                    pred_map_t,
+                    x0,
+                    y0,
+                    th,
+                    MAP_X_LIMIT,
+                    MAP_Y_LIMIT,
+                    map_x_min,
+                    map_x_max,
+                    map_y_min,
+                    map_y_max,
+                    IMG_SIZE,
+                    IMG_SIZE,
                 )
                 reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))  # (H, W)
 
@@ -290,10 +310,10 @@ class ScopeCostmap:
             vox_msg.height = IMG_SIZE
             vox_msg.width = IMG_SIZE
             vox_msg.depth = SEQ_LEN
-            vox_msg.dl = RESOLUTION
+            vox_msg.dl = (map_x_max - map_x_min) / IMG_SIZE
             vox_msg.dt = 0.1
-            vox_msg.origin.x = corner_x
-            vox_msg.origin.y = corner_y
+            vox_msg.origin.x = map_x_min
+            vox_msg.origin.y = map_y_min
             vox_msg.origin.z = 0.0
             vox_msg.theta = 0.0
             vox_msg.data = vox_data.flatten().tolist()
