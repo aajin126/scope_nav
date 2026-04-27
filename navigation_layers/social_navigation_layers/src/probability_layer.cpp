@@ -1,12 +1,11 @@
-// Copyright 2018 David V. Lu!!
-#include <social_navigation_layers/proxemic_layer.h>
+#include <social_navigation_layers/probability_layer.h>
 #include <social_navigation_layers/utils.h>
 #include <math.h>
 #include <angles/angles.h>
 #include <pluginlib/class_list_macros.h>
 #include <algorithm>
 #include <list>
-PLUGINLIB_EXPORT_CLASS(social_navigation_layers::ProxemicLayer, costmap_2d::Layer)
+PLUGINLIB_EXPORT_CLASS(social_navigation_layers::ProbabilityLayer, costmap_2d::Layer)
 
 using costmap_2d::NO_INFORMATION;
 using costmap_2d::LETHAL_OBSTACLE;
@@ -14,16 +13,16 @@ using costmap_2d::FREE_SPACE;
 
 namespace social_navigation_layers
 {
-void ProxemicLayer::onInitialize()
+void ProbabilityLayer::onInitialize()
 {
-  SocialLayer::onInitialize();
+  CrowdLayer::onInitialize();
   ros::NodeHandle nh("~/" + name_), g_nh;
-  server_ = new dynamic_reconfigure::Server<ProxemicLayerConfig>(nh);
-  f_ = boost::bind(&ProxemicLayer::configure, this, _1, _2);
+  server_ = new dynamic_reconfigure::Server<ProbabilityLayerConfig>(nh);
+  f_ = boost::bind(&ProbabilityLayer::configure, this, _1, _2);
   server_->setCallback(f_);
 }
 
-void ProxemicLayer::updateBoundsFromPeople(double* min_x, double* min_y, double* max_x, double* max_y)
+void ProbabilityLayer::updateBoundsFromPeople(double* min_x, double* min_y, double* max_x, double* max_y)
 {
   std::list<people_msgs::Person>::iterator p_it;
 
@@ -31,9 +30,11 @@ void ProxemicLayer::updateBoundsFromPeople(double* min_x, double* min_y, double*
   {
     people_msgs::Person person = *p_it;
 
-    double mag = sqrt(pow(person.velocity.x, 2) + pow(person.velocity.y, 2));
-    double factor = 1.0 + mag * factor_;
-    double point = get_radius(cutoff_, amplitude_, covar_ * factor);
+    // Calculate influence radius based on probability (0~254)
+    double prob = person.probability;
+    double prob_norm = prob / 254.0; // 0~1
+    double base_point = get_radius(cutoff_, amplitude_, covar_);
+    double point = base_point * prob_norm;
 
     *min_x = std::min(*min_x, person.position.x - point);
     *min_y = std::min(*min_y, person.position.y - point);
@@ -42,7 +43,7 @@ void ProxemicLayer::updateBoundsFromPeople(double* min_x, double* min_y, double*
   }
 }
 
-void ProxemicLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j)
+void ProbabilityLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j)
 {
   boost::recursive_mutex::scoped_lock lock(lock_);
   if (!enabled_) return;
@@ -59,28 +60,19 @@ void ProxemicLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, i
   for (p_it = transformed_people_.begin(); p_it != transformed_people_.end(); ++p_it)
   {
     people_msgs::Person person = *p_it;
-    double angle = atan2(person.velocity.y, person.velocity.x);
-    double mag = sqrt(pow(person.velocity.x, 2) + pow(person.velocity.y, 2));
-    double factor = 1.0 + mag * factor_;
-    double base = get_radius(cutoff_, amplitude_, covar_);
-    double point = get_radius(cutoff_, amplitude_, covar_ * factor);
+    double amplitude = person.probability; // 0~254
+    if (amplitude <= 0.0)
+      continue; 
 
-    unsigned int width = std::max(1, static_cast<int>((base + point) / res)),
-                 height = std::max(1, static_cast<int>((base + point) / res));
+    double base = get_radius(cutoff_, amplitude, covar_);
+    double point = base;
+
+    unsigned int width = std::max(1, static_cast<int>((2 * point) / res));
+    unsigned int height = std::max(1, static_cast<int>((2 * point) / res));
 
     double cx = person.position.x, cy = person.position.y;
-
-    double ox, oy;
-    if (sin(angle) > 0)
-      oy = cy - base;
-    else
-      oy = cy + (point - base) * sin(angle) - base;
-
-    if (cos(angle) >= 0)
-      ox = cx - base;
-    else
-      ox = cx + (point - base) * cos(angle) - base;
-
+    double ox = cx - point;
+    double oy = cy - point;
 
     int dx, dy;
     costmap->worldToMapNoBounds(ox, oy, dx, dy);
@@ -117,29 +109,21 @@ void ProxemicLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, i
           continue;
 
         double x = bx + i * res, y = by + j * res;
-        double ma = atan2(y - cy, x - cx);
-        double diff = angles::shortest_angular_distance(angle, ma);
-        double a;
-        if (fabs(diff) < M_PI / 2)
-          a = gaussian(x, y, cx, cy, amplitude_, covar_ * factor, covar_, angle);
-        else
-          a = gaussian(x, y, cx, cy, amplitude_, covar_,       covar_, 0);
-
+        double a = gaussian(x, y, cx, cy, amplitude, covar_, covar_, 0);
         if (a < cutoff_)
           continue;
-        unsigned char cvalue = (unsigned char) a;
+        unsigned char cvalue = (unsigned char)a;
         costmap->setCost(i + dx, j + dy, std::max(cvalue, old_cost));
       }
     }
   }
 }
 
-void ProxemicLayer::configure(ProxemicLayerConfig &config, uint32_t level)
+void ProbabilityLayer::configure(ProbabilityLayerConfig &config, uint32_t level)
 {
   cutoff_ = config.cutoff;
   amplitude_ = config.amplitude;
   covar_ = config.covariance;
-  factor_ = config.factor;
   people_keep_time_ = ros::Duration(config.keep_time);
   enabled_ = config.enabled;
 }

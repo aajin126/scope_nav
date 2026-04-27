@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 generate_dynamic_reconfigure_options(
   cfg/ProxemicLayer.cfg
+  cfg/ProbabilityLayer.cfg
 )
 
 catkin_package(
@@ -31,6 +32,9 @@ add_library(social_layers
             src/social_layer.cpp
             src/proxemic_layer.cpp
             src/passing_layer.cpp
+            src/probability_layer.cpp
+            src/crowd_layer.cpp
+            src/utils.cpp
 )
 add_dependencies(social_layers ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(

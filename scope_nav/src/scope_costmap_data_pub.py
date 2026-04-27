@@ -234,91 +234,93 @@ class ScopeCostmap:
             # t1 = time.perf_counter()
             # print(f"[DEBUG] bit-packing time: {(t1 - t0)*1000:.3f} ms")
 
-            xmin = MAP_X_LIMIT[0]
-            xmax = MAP_X_LIMIT[1]
-            ymin = MAP_Y_LIMIT[0]
-            ymax = MAP_Y_LIMIT[1]
+            ### visualize voxgrid map: 
 
-            corners_local = torch.tensor([
-                [xmin, ymin],
-                [xmin, ymax],
-                [xmax, ymin],
-                [xmax, ymax],
-            ], device=pos_origin.device, dtype=pos_origin.dtype)
+            # xmin = MAP_X_LIMIT[0]
+            # xmax = MAP_X_LIMIT[1]
+            # ymin = MAP_Y_LIMIT[0]
+            # ymax = MAP_Y_LIMIT[1]
 
-            x0 = pos_origin[0, 0]
-            y0 = pos_origin[0, 1]
-            th = pos_origin[0, 2]
+            # corners_local = torch.tensor([
+            #     [xmin, ymin],
+            #     [xmin, ymax],
+            #     [xmax, ymin],
+            #     [xmax, ymax],
+            # ], device=pos_origin.device, dtype=pos_origin.dtype)
 
-            ct = torch.cos(th)
-            st = torch.sin(th)
+            # x0 = pos_origin[0, 0]
+            # y0 = pos_origin[0, 1]
+            # th = pos_origin[0, 2]
 
-            cx = corners_local[:, 0]
-            cy = corners_local[:, 1]
+            # ct = torch.cos(th)
+            # st = torch.sin(th)
 
-            corners_x_map = x0 + ct * cx - st * cy
-            corners_y_map = y0 + st * cx + ct * cy
+            # cx = corners_local[:, 0]
+            # cy = corners_local[:, 1]
 
-            map_x_min = corners_x_map.min()
-            map_x_max = corners_x_map.max()
-            map_y_min = corners_y_map.min()
-            map_y_max = corners_y_map.max()
+            # corners_x_map = x0 + ct * cx - st * cy
+            # corners_y_map = y0 + st * cx + ct * cy
 
-            reprojected_maps = []
-            for t in range(SEQ_LEN):
-                pred_map_t = prediction_maps[t:t+1]
-                pos_origin_map = pos_origin[0]
-                dx = pos_origin_map[0]
-                dy = pos_origin_map[1]
-                dtheta = pos_origin_map[2]
-                fin_map_t = reprojection_to_map(
-                    pred_map_t,
-                    x0,
-                    y0,
-                    th,
-                    MAP_X_LIMIT,
-                    MAP_Y_LIMIT,
-                    map_x_min,
-                    map_x_max,
-                    map_y_min,
-                    map_y_max,
-                    IMG_SIZE,
-                    IMG_SIZE,
-                )
-                reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))  # (H, W)
+            # map_x_min = corners_x_map.min()
+            # map_x_max = corners_x_map.max()
+            # map_y_min = corners_y_map.min()
+            # map_y_max = corners_y_map.max()
 
-            # (T, H, W) -> uint8 [0,255]
-            reprojected_stack = torch.stack(reprojected_maps, dim=0)   # (T, H, W)
-            # vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()  # (T, H, W)
-            vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()   # (T, X, Y)
-            vox_data = np.transpose(vox_data, (0, 2, 1))  # (T, Y, X)         
+            # reprojected_maps = []
+            # for t in range(SEQ_LEN):
+            #     pred_map_t = prediction_maps[t:t+1]
+            #     pos_origin_map = pos_origin[0]
+            #     dx = pos_origin_map[0]
+            #     dy = pos_origin_map[1]
+            #     dtheta = pos_origin_map[2]
+            #     fin_map_t = reprojection_to_map(
+            #         pred_map_t,
+            #         x0,
+            #         y0,
+            #         th,
+            #         MAP_X_LIMIT,
+            #         MAP_Y_LIMIT,
+            #         map_x_min,
+            #         map_x_max,
+            #         map_y_min,
+            #         map_y_max,
+            #         IMG_SIZE,
+            #         IMG_SIZE,
+            #     )
+            #     reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))  # (H, W)
 
-            # VoxGrid.msg fields (vox_msgs/VoxGrid):
-            # std_msgs/Header  header 
-            # uint32 height
-            # uint32 width
-            # uint32 depth
-            # float32 dl
-            # float32 dt
-            # geometry_msgs/Point origin
-            # float32 theta
-            # uint8[] data
+            # # (T, H, W) -> uint8 [0,255]
+            # reprojected_stack = torch.stack(reprojected_maps, dim=0)   # (T, H, W)
+            # # vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()  # (T, H, W)
+            # vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()   # (T, X, Y)
+            # vox_data = np.transpose(vox_data, (0, 2, 1))  # (T, Y, X)         
 
-            vox_msg = VoxGrid()
-            vox_msg.header.stamp = rospy.Time.now()
-            vox_msg.header.frame_id = "map"
-            vox_msg.height = IMG_SIZE
-            vox_msg.width = IMG_SIZE
-            vox_msg.depth = SEQ_LEN
-            vox_msg.dl = (map_x_max - map_x_min) / IMG_SIZE
-            vox_msg.dt = 0.1
-            vox_msg.origin.x = map_x_min
-            vox_msg.origin.y = map_y_min
-            vox_msg.origin.z = 0.0
-            vox_msg.theta = 0.0
-            vox_msg.data = vox_data.flatten().tolist()
+            # # VoxGrid.msg fields (vox_msgs/VoxGrid):
+            # # std_msgs/Header  header 
+            # # uint32 height
+            # # uint32 width
+            # # uint32 depth
+            # # float32 dl
+            # # float32 dt
+            # # geometry_msgs/Point origin
+            # # float32 theta
+            # # uint8[] data
 
-            self.voxgrid_pub.publish(vox_msg)
+            # vox_msg = VoxGrid()
+            # vox_msg.header.stamp = rospy.Time.now()
+            # vox_msg.header.frame_id = "map"
+            # vox_msg.height = IMG_SIZE
+            # vox_msg.width = IMG_SIZE
+            # vox_msg.depth = SEQ_LEN
+            # vox_msg.dl = (map_x_max - map_x_min) / IMG_SIZE
+            # vox_msg.dt = 0.1
+            # vox_msg.origin.x = map_x_min
+            # vox_msg.origin.y = map_y_min
+            # vox_msg.origin.z = 0.0
+            # vox_msg.theta = 0.0
+            # vox_msg.data = vox_data.flatten().tolist()
+
+            # self.voxgrid_pub.publish(vox_msg)
 
             occ_scope_pred = People()
             #occ_scope_pred.header = self.header
@@ -327,7 +329,6 @@ class ScopeCostmap:
 
             # get occupied indicies:
             pred_mean_occ = fin_prediction_map.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.1] = 0
             idx_occ = torch.nonzero(pred_mean_occ)
 
             # translate grid indicies to the physical positions:
@@ -342,6 +343,8 @@ class ScopeCostmap:
                 o_pose.position.x = px[i]
                 o_pose.position.y = py[i]
                 o_pose.position.z = 0
+                row, col = idx_occ[i]
+                o_pose.probability = float(pred_mean_occ[row, col].item() * 254.0)
                 occ_scope_pred.people.append(o_pose)
             # publish prediction map:
             self.scope_prediction_pub.publish(occ_scope_pred)
