@@ -55,6 +55,7 @@ void CrowdLayer::updateBounds(double origin_x, double origin_y, double origin_z,
       tpt.position.x = opt.point.x;
       tpt.position.y = opt.point.y;
       tpt.position.z = opt.point.z;
+      tpt.probability = person.probability;
 
       transformed_people_.push_back(tpt);
     }

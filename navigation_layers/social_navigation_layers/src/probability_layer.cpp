@@ -33,8 +33,9 @@ void ProbabilityLayer::updateBoundsFromPeople(double* min_x, double* min_y, doub
     // Calculate influence radius based on probability (0~254)
     double prob = person.probability;
     double prob_norm = prob / 254.0; // 0~1
-    double base_point = get_radius(cutoff_, amplitude_, covar_);
-    double point = base_point * prob_norm;
+    //double base_point = get_radius(cutoff_, amplitude_, covar_);
+    double base_point = 0.5;
+    double point = prob_norm * base_point;
 
     *min_x = std::min(*min_x, person.position.x - point);
     *min_y = std::min(*min_y, person.position.y - point);
@@ -60,11 +61,14 @@ void ProbabilityLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i
   for (p_it = transformed_people_.begin(); p_it != transformed_people_.end(); ++p_it)
   {
     people_msgs::Person person = *p_it;
-    double amplitude = person.probability; // 0~254
+    double prob = person.probability;
+    double prob_norm = prob / 254.0; 
+    double amplitude = amplitude_ * prob_norm;
     if (amplitude <= 0.0)
       continue; 
 
-    double base = get_radius(cutoff_, amplitude, covar_);
+    //double base = get_radius(cutoff_, amplitude, covar_);
+    double base = 0.5*prob_norm;
     double point = base;
 
     unsigned int width = std::max(1, static_cast<int>((2 * point) / res));

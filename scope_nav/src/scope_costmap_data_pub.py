@@ -322,32 +322,8 @@ class ScopeCostmap:
 
             # self.voxgrid_pub.publish(vox_msg)
 
-            occ_scope_pred = People()
-            #occ_scope_pred.header = self.header
-            occ_scope_pred.header.stamp = rospy.Time.now()
-            occ_scope_pred.header.frame_id = "hokuyo_link"
-
-            # get occupied indicies:
-            pred_mean_occ = fin_prediction_map.squeeze()
-            idx_occ = torch.nonzero(pred_mean_occ)
-
-            # translate grid indicies to the physical positions:
-            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
-            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
-            px = px.detach().cpu().numpy()
-            py = py.detach().cpu().numpy()
-            idx_occ = idx_occ.detach().cpu().numpy()
-
-            for i in range(len(px)):
-                o_pose = Person()
-                o_pose.position.x = px[i]
-                o_pose.position.y = py[i]
-                o_pose.position.z = 0
-                row, col = idx_occ[i]
-                o_pose.probability = float(pred_mean_occ[row, col].item() * 254.0)
-                occ_scope_pred.people.append(o_pose)
-            # publish prediction map:
-            self.scope_prediction_pub.publish(occ_scope_pred)
+            #----------------------------------------------------------#
+            ##################  Publish local map  #####################
 
             # get the output:
             pred_mean_map = fin_prediction_map.detach().cpu().numpy()
@@ -372,6 +348,37 @@ class ScopeCostmap:
 
             # publish local map msg:
             self.local_map_pub.publish(occ_map)
+
+
+            #----------------------------------------------------------#
+            ##################  Publish People  #####################
+
+            occ_scope_pred = People()
+            #occ_scope_pred.header = self.header
+            occ_scope_pred.header.stamp = rospy.Time.now()
+            occ_scope_pred.header.frame_id = "hokuyo_link"
+
+            # get occupied indicies:
+            pred_mean_occ = fin_prediction_map.squeeze()
+            idx_occ = torch.nonzero((pred_mean_occ > 0.05))
+
+            # translate grid indicies to the physical positions:
+            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
+            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
+            px = px.detach().cpu().numpy()
+            py = py.detach().cpu().numpy()
+            idx_occ = idx_occ.detach().cpu().numpy()
+
+            for i in range(len(px)):
+                o_pose = Person()
+                o_pose.position.x = px[i]
+                o_pose.position.y = py[i]
+                o_pose.position.z = 0
+                row, col = idx_occ[i]
+                o_pose.probability = float(pred_mean_occ[row, col].item() * 254.0)
+                occ_scope_pred.people.append(o_pose)
+            # publish prediction map:
+            self.scope_prediction_pub.publish(occ_scope_pred)
         
             # reset the position data list:
             self.ts_cnt = NUM_TP-1
