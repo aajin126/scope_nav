@@ -16,12 +16,14 @@ from geometry_msgs.msg import Point, PoseStamped, Twist, TwistStamped
 from people_msgs.msg import People, Person
 from nav_msgs.msg import Odometry, OccupancyGrid
 from std_msgs.msg import Header
+import tf.transformations as tft
 # python: 
 import numpy as np
 import math
 # import the model and all of its variables/functions
 #
 from model import *
+from reproj import reprojection, reprojection_to_map
 from local_occ_grid_map import LocalMap
 import torch
 import threading
@@ -63,6 +65,7 @@ class ScopeCostmap:
         self.positions = []
         self.velocities = []
         self.header = Header() 
+        self.tf_listener = None
 
         # read truncnorm & skewcauchy model parameters:
         occ_entropy_path = rospy.get_param('~statistics_file', None)
@@ -138,60 +141,92 @@ class ScopeCostmap:
             # create occupancy maps:
             batch_size = scans.size(0)
             prediction_maps = torch.zeros(SEQ_LEN, 1, IMG_SIZE, IMG_SIZE).to(device)
-            # multi-step prediction: 10 time steps:
-            # Create input grid maps: 
-            input_gridMap = LocalMap(X_lim = MAP_X_LIMIT, 
-                                    Y_lim = MAP_Y_LIMIT, 
-                                    resolution = RESOLUTION, 
-                                    p = P_prior,
-                                    size=[batch_size, SEQ_LEN],
-                                    device = device)
-            # current position and velocities: 
-            obs_pos_N = positions[:, SEQ_LEN-1]
-            vel_N = velocities[:, SEQ_LEN-1]
-            # Predict the future origin pose of the robot: t+n 
-            T = 10 #SEQ_LEN #int(t_pred)
-            noise_std = [0, 0, 0]#[0.00111, 0.00112, 0.02319]
-            pos_origin = input_gridMap.origin_pose_prediction(vel_N, obs_pos_N, T, noise_std)
-            # robot positions:
-            pos = positions[:,:SEQ_LEN]
-            # Transform the robot past poses to the predicted reference frame.
-            x_odom, y_odom, theta_odom = input_gridMap.robot_coordinate_transform(pos, pos_origin)
-            # Lidar measurements:
-            distances = scans[:,:SEQ_LEN]
-            # the angles of lidar scan: -135 ~ 135 degree
-            angles = torch.linspace(-(135*np.pi/180), 135*np.pi/180, distances.shape[-1]).to(device)
-            # Lidar measurements in X-Y plane: transform to the predicted robot reference frame
-            distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
-            # discretize to binary maps:
-            input_binary_maps = input_gridMap.discretize(distances_x, distances_y)
-            
-            # for scope_plus_plus 
-            input_gridMap.update(x_odom, y_odom, distances_x, distances_y, P_free, P_occ)
-            input_occ_grid_map = input_gridMap.to_prob_occ_map(TRESHOLD_P_OCC)         
+            pos_origin_list = []
+            for j in range(SEQ_LEN):
+                # multi-step prediction: 10 time steps:
+                # Create input grid maps: 
+                input_gridMap = LocalMap(X_lim = MAP_X_LIMIT, 
+                                        Y_lim = MAP_Y_LIMIT, 
+                                        resolution = RESOLUTION, 
+                                        p = P_prior,
+                                        size=[batch_size, SEQ_LEN],
+                                        device = device)
+                # current position and velocities: 
+                obs_pos_N = positions[:, SEQ_LEN-1]
+                vel_N = velocities[:, SEQ_LEN-1]
+                # Predict the future origin pose of the robot: t+n 
+                T = j+1 #SEQ_LEN #int(t_pred)
+                noise_std = [0, 0, 0]#[0.00111, 0.00112, 0.02319]
+                pos_origin = input_gridMap.origin_pose_prediction(vel_N, obs_pos_N, T, noise_std)
+                pos_origin_list.append(pos_origin)
+                # robot positions:
+                pos = positions[:,:SEQ_LEN]
+                # Transform the robot past poses to the predicted reference frame.
+                x_odom, y_odom, theta_odom = input_gridMap.robot_coordinate_transform(pos, pos_origin)
+                # Lidar measurements:
+                distances = scans[:,:SEQ_LEN]
+                # the angles of lidar scan: -135 ~ 135 degree
+                angles = torch.linspace(-(135*np.pi/180), 135*np.pi/180, distances.shape[-1]).to(device)
+                # Lidar measurements in X-Y plane: transform to the predicted robot reference frame
+                distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
+                # discretize to binary maps:
+                input_binary_maps = input_gridMap.discretize(distances_x, distances_y)
+                
+                # for scope_plus_plus 
+                input_gridMap.update(x_odom, y_odom, distances_x, distances_y, P_free, P_occ)
+                input_occ_grid_map = input_gridMap.to_prob_occ_map(TRESHOLD_P_OCC)         
 
-            # binary occupancy maps:
-            input_binary_maps = input_binary_maps.unsqueeze(2)
-            curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
-            
-            # feed the batch to the network:
-            num_samples = 1 
-            inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
+                # binary occupancy maps:
+                input_binary_maps = input_binary_maps.unsqueeze(2)
+                curr_map = input_binary_maps[:, -1].detach().cpu().numpy()
+                
+                # feed the batch to the network:
+                num_samples = 1 
+                inputs_samples = input_binary_maps.repeat(num_samples,1,1,1,1)
 
-            prediction_seq = []
-            for t in range(T):
-                prediction = self.model(inputs_samples)
-                prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)  # (B,1,1,H,W)
-                inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
-                prediction_seq.append(prediction)
-            
-            prediction_seq = torch.cat(prediction_seq, dim=1)
+                prediction_seq = []
+                for t in range(T):
+                    prediction = self.model(inputs_samples)
+                    prediction = prediction.reshape(-1,1,1,IMG_SIZE,IMG_SIZE)  # (B,1,1,H,W)
+                    inputs_samples = torch.cat([inputs_samples[:,1:], prediction], dim=1)
+                prediction_maps[j, 0] = prediction.squeeze()
 
+            ##
+            ## final prediction map: transform to the current robot frame
+            ##
+            if self.tf_listener is None:
+                import tf
+                self.tf_listener = tf.TransformListener()
+
+            try:
+                (trans, rot) = self.tf_listener.lookupTransform('/map', '/base_footprint', rospy.Time(0))
+                (_, _, theta) = tft.euler_from_quaternion(rot)
+                curr_pos_tf = np.array([trans[0], trans[1], theta], dtype=np.float32)
+            except Exception as e:
+                rospy.logwarn('TF lookup failed, fallback to last pose: %s', str(e))
+                curr_pos_tf = self.curr_pos.copy()
+
+            curr_pos_t = torch.from_numpy(curr_pos_tf).float().to(device).view(1, 1, 3)
+            reprojected_maps = []
             for t in range(SEQ_LEN):
-                pred_mean = torch.mean(prediction_seq[:, t], dim=0, keepdim=True)
-                prediction_maps[t, 0] = pred_mean.squeeze()
+                pos_origin_t = pos_origin_list[t] 
+                x_now_t, y_now_t, th_now_t = input_gridMap.robot_coordinate_transform(curr_pos_t, pos_origin_t)
+                x_now_t = x_now_t[:, 0]
+                y_now_t = y_now_t[:, 0]
+                th_now_t = th_now_t[:, 0]
+                fin_map_t, _ = reprojection(
+                    prediction_maps[t:t+1],
+                    x_now_t,
+                    y_now_t,
+                    th_now_t,
+                    MAP_X_LIMIT,
+                    MAP_Y_LIMIT
+                )
+                reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))
 
-            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
+            reprojected_maps = torch.stack(reprojected_maps, dim=0)
+            merged_prediction_map = torch.amax(reprojected_maps[:SEQ_LEN], dim=0, keepdim=True)
+            merged_prediction_map = merged_prediction_map.unsqueeze(0)
 
             predictions = merged_prediction_map.clone()
             pred_entropy = torch.zeros((1, 1, IMG_SIZE, IMG_SIZE)).to(device)
@@ -202,71 +237,22 @@ class ScopeCostmap:
                 c_occ_entropys = -1*torch.ones(idx_size).to(device) * c_entropy
                 pred_entropy[idx] = c_occ_entropys.to(torch.float32)
                 predictions[idx] = 100
-            
-            ## pubish occupied people data: prediction
-            occ_scope_pred = People()
-            #occ_scope_pred.header = self.header
-            occ_scope_pred.header.stamp = rospy.Time.now()
-            occ_scope_pred.header.frame_id = "hokuyo_link"
-            
-            # get occupied indicies:
-            pred_mean_occ = merged_prediction_map.squeeze()
-            pred_mean_occ[pred_mean_occ < 0.5] = 0
-            idx_occ = torch.nonzero(pred_mean_occ)
 
-            # translate grid indicies to the physical positions:
-            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
-            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
-            px = px.detach().cpu().numpy()
-            py = py.detach().cpu().numpy()
-            idx_occ = idx_occ.detach().cpu().numpy()
-
-            for i in range(len(px)):
-                o_pose = Person()
-                o_pose.position.x = px[i]
-                o_pose.position.y = py[i]
-                o_pose.position.z = 0
-                occ_scope_pred.people.append(o_pose)
-            # publish prediction map:
-            self.scope_prediction_pub.publish(occ_scope_pred)
-
-            ## pubish occupied people data: uncertainty
-            occ_scope_entropy = People()
-            #occ_scope.header = self.header
-            occ_scope_entropy.header.stamp = rospy.Time.now() 
-            occ_scope_entropy.header.frame_id = "hokuyo_link"
-            
-            # get occupied indicies:
-            pred_entropy_occ = pred_entropy.squeeze()
-            pred_entropy_occ[pred_entropy_occ < 0.5] = 0
-            idx_occ = torch.nonzero(pred_entropy_occ)
-
-            # translate grid indicies to the physical positions:
-            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
-            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
-            px = px.detach().cpu().numpy()
-            py = py.detach().cpu().numpy()
-            idx_occ = idx_occ.detach().cpu().numpy()
-     
-            for i in range(len(px)):
-                o_pose = Person()
-                o_pose.position.x = px[i]
-                o_pose.position.y = py[i]
-                o_pose.position.z = 0
-                occ_scope_entropy.people.append(o_pose)
-            # publish uncertainty map:
-            self.scope_uncertainty_pub.publish(occ_scope_entropy)
+            #----------------------------------------------------------#
+            ##################  Publish local map  #####################
 
             ## get the output:
             pred_mean_map = merged_prediction_map.detach().cpu().numpy()
             pred_entropy_map = pred_entropy.detach().cpu().numpy()
+            pred_mean_map = pred_mean_map.reshape(1, 1, IMG_SIZE, IMG_SIZE)
+            pred_entropy_map = pred_entropy_map.reshape(1, 1, IMG_SIZE, IMG_SIZE)
 
-            # publish scope output data:
-            prediction_map = np.concatenate((pred_mean_map, pred_entropy_map, curr_map), axis=1)
-            self.occ_grid = prediction_map.reshape(-1).tolist()
-            scope_output_data = ScopeOutputData()
-            scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
-            self.scope_output_data_pub.publish(scope_output_data)
+            # # publish scope output data:
+            # prediction_map = np.concatenate((pred_mean_map, pred_entropy_map, curr_map), axis=1)
+            # self.occ_grid = prediction_map.reshape(-1).tolist()
+            # scope_output_data = ScopeOutputData()
+            # scope_output_data.occ_grid = [float(val) for val in self.occ_grid] #for subb in sublist for val in subb]
+            # self.scope_output_data_pub.publish(scope_output_data)
         
             # visualize the local occupancy map:
             # create message:
@@ -285,11 +271,70 @@ class ScopeCostmap:
             # initialize data:
             occ_pred_map = pred_mean_map.squeeze().transpose().reshape(-1).tolist()
             occ_map.data = [int(val*100) for val in occ_pred_map]#.transpose() for val in sublist]
-            # print map information to screen
-            #rospy.loginfo("local map info: resolution: %.2f, width: %.2f, height: %.2f", 
-            #            occ_map.info.resolution, occ_map.info.width, occ_map.info.height)
             # publish local map msg:
             self.local_map_pub.publish(occ_map)
+
+            #----------------------------------------------------------#
+            ##################  Publish Prediction map  #####################
+
+            ## pubish occupied people data: prediction
+            occ_scope_pred = People()
+            #occ_scope_pred.header = self.header
+            occ_scope_pred.header.stamp = rospy.Time.now()
+            occ_scope_pred.header.frame_id = "hokuyo_link"
+            
+            # get occupied indicies:
+            pred_mean_occ = merged_prediction_map.squeeze()
+            idx_occ = torch.nonzero((pred_mean_occ > 0.05))
+
+            # translate grid indicies to the physical positions:
+            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
+            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
+            px = px.detach().cpu().numpy()
+            py = py.detach().cpu().numpy()
+            idx_occ = idx_occ.detach().cpu().numpy()
+
+            for i in range(len(px)):
+                o_pose = Person()
+                o_pose.position.x = px[i]
+                o_pose.position.y = py[i]
+                o_pose.position.z = 0
+                row, col = idx_occ[i]
+                o_pose.probability = float(pred_mean_occ[row, col].item() * 254.0)
+                occ_scope_pred.people.append(o_pose)
+            # publish prediction map:
+            self.scope_prediction_pub.publish(occ_scope_pred)
+
+            #----------------------------------------------------------#
+            ##################  Publish Uncertainty map  #####################
+
+            ## pubish occupied people data: uncertainty
+            occ_scope_entropy = People()
+            #occ_scope.header = self.header
+            occ_scope_entropy.header.stamp = rospy.Time.now() 
+            occ_scope_entropy.header.frame_id = "hokuyo_link"
+            
+            # get occupied indicies:
+            pred_entropy_occ = pred_entropy.squeeze()
+            idx_occ = torch.nonzero((pred_entropy_occ> 0.05))
+
+            # translate grid indicies to the physical positions:
+            px = MAP_X_LIMIT[0] + RESOLUTION*(idx_occ[:, 0] + 0.5)
+            py = MAP_Y_LIMIT[0] + RESOLUTION*(idx_occ[:, 1] + 0.5)
+            px = px.detach().cpu().numpy()
+            py = py.detach().cpu().numpy()
+            idx_occ = idx_occ.detach().cpu().numpy()
+     
+            for i in range(len(px)):
+                o_pose = Person()
+                o_pose.position.x = px[i]
+                o_pose.position.y = py[i]
+                o_pose.position.z = 0
+                row, col = idx_occ[i]
+                o_pose.probability = float(pred_entropy_occ[row, col].item() * 254.0)
+                occ_scope_entropy.people.append(o_pose)
+            # publish uncertainty map:
+            self.scope_uncertainty_pub.publish(occ_scope_entropy)
 
             # reset the position data list:
             self.ts_cnt = NUM_TP-1
