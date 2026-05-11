@@ -84,9 +84,6 @@
     <arg name="model_file" value="$(arg model_file)"/>
   </include>
 
-  <!-- Guidance Planner -->
-  <!-- <include file="$(find guidance_planner)/launch/guidance_planner.launch"/> -->
-
   <!-- Pedestrian Publisher -->
   <node name="track_ped_pub" pkg="scope_nav" type="track_ped_pub.py" output="screen"/>
 

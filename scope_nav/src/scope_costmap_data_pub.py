@@ -61,7 +61,7 @@ class ScopeCostmap:
     # Constructor
     def __init__(self):
         # initialize data:  
-        self.scan_ranges = np.zeros(1080)
+        self.scan_ranges = np.zeros(811)
         self.curr_vel = np.zeros(2)
         self.curr_pos = np.zeros(3)
         self.curr_odom = np.zeros(3)
@@ -73,7 +73,6 @@ class ScopeCostmap:
         self.velocities = []
         self.header = Header() 
         self.tf_listener = None
-        print(os.getcwd())
 
         # initialize ROS objects
         self.scope_input_data_sub = rospy.Subscriber("scope_input_data", ScopeInputData, self.scope_input_data_callback)
@@ -162,8 +161,8 @@ class ScopeCostmap:
             x_odom, y_odom, theta_odom =  input_gridMap.robot_coordinate_transform(pos, pos_origin)
             # Lidar measurements:
             distances = scans[:,:SEQ_LEN]
-            # the angles of lidar scan: -135 ~ 135 degree
-            angles = torch.linspace(-(135*np.pi/180), 135*np.pi/180, distances.shape[-1]).to(device)
+            # the angles of lidar scan: -100 ~ 100 degree
+            angles = torch.linspace(-(100*np.pi/180), 100*np.pi/180, distances.shape[-1]).to(device)
             # Lidar measurements in X-Y plane: transform to the predicted robot reference frame
             distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
             # discretize to binary maps:
@@ -207,7 +206,7 @@ class ScopeCostmap:
                 self.tf_listener = tf.TransformListener()
 
             try:
-                (trans, rot) = self.tf_listener.lookupTransform('/map', '/base_footprint', rospy.Time(0))
+                (trans, rot) = self.tf_listener.lookupTransform('/map', '/base_link', rospy.Time(0))
                 (_, _, theta) = tft.euler_from_quaternion(rot)
                 curr_pos_tf = np.array([trans[0], trans[1], theta], dtype=np.float32)
             except Exception as e:
@@ -334,7 +333,7 @@ class ScopeCostmap:
             # initialize header:
             #occ_map.header = self.header
             occ_map.header.stamp = rospy.Time.now()
-            occ_map.header.frame_id = "hokuyo_link" #scan_msg.header.frame_id
+            occ_map.header.frame_id = "laser_link" #scan_msg.header.frame_id
             # initialize info:
             occ_map.info.map_load_time = rospy.Time.now()
             occ_map.info.resolution = RESOLUTION #xy_resolution
@@ -356,7 +355,7 @@ class ScopeCostmap:
             occ_scope_pred = People()
             #occ_scope_pred.header = self.header
             occ_scope_pred.header.stamp = rospy.Time.now()
-            occ_scope_pred.header.frame_id = "hokuyo_link"
+            occ_scope_pred.header.frame_id = "laser_link"
 
             # get occupied indicies:
             pred_mean_occ = fin_prediction_map.squeeze()

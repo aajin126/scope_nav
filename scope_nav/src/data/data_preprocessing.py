@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from local_occ_grid_map import LocalMap
 from data.dataloader import PredOccDataset
 
-POINTS = 1080   # number of lidar points
+POINTS = 811   # number of lidar points
 IMG_SIZE = 64
 SEQ_LEN = 10
 

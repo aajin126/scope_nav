@@ -28,7 +28,7 @@ class ScopeInputDataPub:
     # Constructor
     def __init__(self):
         # initialize data:  
-        self.scan_ranges = np.zeros(1080)
+        self.scan_ranges = np.zeros(811)
         self.curr_vel = np.zeros(2)
         self.curr_pos = np.zeros(3)
         self.curr_odom = np.zeros(3)
@@ -55,9 +55,9 @@ class ScopeInputDataPub:
     def get_current_pose(self):
         trans = rot = None
         trans_odom = rot_odom = None
-        # look up the current pose of the base_footprint using the tf tree
+        # look up the current pose of the base_link using the tf tree
         try:
-            (trans,rot) = self.tf_listener.lookupTransform('/map', '/base_footprint', rospy.Time(0))
+            (trans,rot) = self.tf_listener.lookupTransform('/map', '/base_link', rospy.Time(0))
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             rospy.logwarn('Could not get robot pose')
             return self.curr_pos

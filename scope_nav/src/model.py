@@ -69,7 +69,7 @@ def set_seed(seed):
 #          labels - the correct labels for them
 #
 # this method takes in a fp and returns the data and labels
-POINTS = 1080
+POINTS = 811
 IMG_SIZE = 64
 SEQ_LEN = 10
 class VaeTestDataset(torch.utils.data.Dataset):

@@ -68,7 +68,7 @@ class TrackPed:
             # get pedestrian poses and velocities:
             tracked_peds = TrackedPersons()
             #tracked_peds.header = peds.header
-            tracked_peds.header.frame_id = 'base_footprint'
+            tracked_peds.header.frame_id = 'base_link'
             tracked_peds.header.stamp = rospy.Time.now()
             for ped in peds.tracks:
                 tracked_ped = TrackedPerson()
