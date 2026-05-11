@@ -2,5 +2,5 @@
   Used for visualising the turtlebot while building a map or navigating with the ros navistack.
  -->
 <launch>
-  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find robot_gazebo)/rviz/navigation.rviz"/>
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find scope_nav)/launch/includes/rviz/navigation.rviz"/>
 </launch>
