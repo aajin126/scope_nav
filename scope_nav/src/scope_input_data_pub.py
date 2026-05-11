@@ -37,7 +37,7 @@ class ScopeInputDataPub:
         # initialize ROS objects
         self.tf_listener = tf.TransformListener()
         self.scan_sub = message_filters.Subscriber("scan", LaserScan)
-        self.robot_vel_sub = message_filters.Subscriber("odom", Odometry)#('/mobile_base/commands/velocity', Twist) #, queue_size=1)
+        self.robot_vel_sub = message_filters.Subscriber("/former_base_controller/odom", Odometry)#('/mobile_base/commands/velocity', Twist) #, queue_size=1)
         self.scope_data = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.robot_vel_sub], queue_size=5, slop=0.5, allow_headerless=True)
         self.scope_data.registerCallback(self.scope_data_callback)
 

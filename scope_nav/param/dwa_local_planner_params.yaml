@@ -1,7 +1,7 @@
 DWAPlannerROS:
 
 # Robot Configuration Parameters - Kobuki
-  max_vel_x: 1.0  # 0.55
+  max_vel_x: 0.5
   min_vel_x: 0.0 
 
   max_vel_y: 0.0  # diff drive robot
@@ -9,7 +9,7 @@ DWAPlannerROS:
 
   #max_trans_vel: 0.5 # choose slightly less than the base's capability
   #min_trans_vel: 0.1  # this is the min trans velocity when there is negligible rotational velocity
-  max_vel_trans: 1.0 #0.5
+  max_vel_trans: 0.5
   min_vel_trans: 0.1
   trans_stopped_vel: 0.1
 
@@ -25,7 +25,7 @@ DWAPlannerROS:
   theta_stopped_vel: 0.4
   
   acc_lim_x: 1.0 #1.0 # maximum is theoretically 2.0, but we 
-  acc_lim_theta: 2.0
+  acc_lim_theta: 1.0
   acc_lim_y: 1.0 #0.0      # diff drive robot
 
 # Goal Tolerance Parameters
