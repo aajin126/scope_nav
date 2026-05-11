@@ -19,7 +19,17 @@ plugins:
 
 obstacles_layer:
   observation_sources: scan
-  scan: {sensor_frame: front_laser, data_type: LaserScan, topic: front/scan, marking: true, clearing: true, min_obstacle_height: -2.0, max_obstacle_height: 2.0, obstacle_range: 2.5, raytrace_range: 3.0}
+  scan: {sensor_frame: front_laser, data_type: LaserScan, topic: /scan, marking: true, clearing: true, min_obstacle_height: -2.0, max_obstacle_height: 2.0, obstacle_range: 2.5, raytrace_range: 3.0}
 
 inflater_layer:
  inflation_radius: 0.30
+
+# add scope costmap layers:
+scope_prediction_layer:
+   people_topic: scope_prediction
+   enabled:               true
+   cutoff:                10    #  double, default: 10.0 - Smallest value to publish on costmap adjustments
+   amplitude:             254   #  double, default: 77.0 - Amplitude of adjustments at peak
+   covariance:            0.002    #  double, default: 0.25 - Covariance of adjustments
+   factor:                5.0     #  double, default: 5.0 -  Factor with which to scale the velocity
+   keep_time:             0.5    #  double, default: 0.75
