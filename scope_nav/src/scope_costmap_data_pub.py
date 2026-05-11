@@ -17,7 +17,7 @@ from people_msgs.msg import People, Person
 from nav_msgs.msg import Odometry, OccupancyGrid
 from std_msgs.msg import Header
 import tf.transformations as tft
-from vox_msgs.msg import VoxGrid
+#from vox_msgs.msg import VoxGrid
 # python: 
 import numpy as np
 import math
@@ -81,7 +81,7 @@ class ScopeCostmap:
         self.scope_prediction_pub = rospy.Publisher('scope_prediction', People, queue_size=1, latch=False)
         self.scope_uncertainty_pub = rospy.Publisher('scope_uncertainty', People, queue_size=1, latch=False)
         self.local_map_pub = rospy.Publisher('local_map', OccupancyGrid, queue_size=1, latch=False)
-        self.voxgrid_pub = rospy.Publisher('plan_costmap_3D', VoxGrid, queue_size=1, latch=False)
+        #self.voxgrid_pub = rospy.Publisher('plan_costmap_3D', VoxGrid, queue_size=1, latch=False)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         base_configs = rospy.get_param("~base_configs")
