@@ -8,7 +8,7 @@
   <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
 
   <!-- Localization -->
-  <arg name="custom_amcl_launch_file" default="$(find robot_gazebo)/launch/includes/amcl/amcl_former.launch.xml"/> 
+  <arg name="custom_amcl_launch_file" default="$(find scope_nav)/launch/includes/amcl/amcl_former.launch.xml"/> 
 
   <include file="$(arg custom_amcl_launch_file)">
     <arg name="initial_pose_x" value="$(arg initial_pose_x)"/>
