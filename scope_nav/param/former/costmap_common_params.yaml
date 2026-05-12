@@ -26,10 +26,7 @@ inflation_layer:
 
 # add scope costmap layers:
 scope_prediction_layer:
-   people_topic: scope_prediction
-   enabled:               true
-   cutoff:                10    #  double, default: 10.0 - Smallest value to publish on costmap adjustments
-   amplitude:             254   #  double, default: 77.0 - Amplitude of adjustments at peak
-   covariance:            0.002    #  double, default: 0.25 - Covariance of adjustments
-   factor:                5.0     #  double, default: 5.0 -  Factor with which to scale the velocity
-   keep_time:             0.5    #  double, default: 0.75
+  grid_topic: local_map
+  enabled:               true
+  min_value:             1
+  transform_tolerance:   0.3

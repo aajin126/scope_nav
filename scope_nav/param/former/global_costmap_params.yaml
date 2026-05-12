@@ -8,5 +8,6 @@ global_costmap:
    plugins:
      - {name: static_layer,            type: "costmap_2d::StaticLayer"}
      - {name: obstacle_layer,          type: "costmap_2d::VoxelLayer"}
+     - {name: scope_prediction_layer,  type: "social_navigation_layers::GridPredictionLayer"}
      - {name: inflation_layer,         type: "costmap_2d::InflationLayer"}
-     - {name: scope_prediction_layer,  type: "social_navigation_layers::ProbabilityLayer"}
+     
