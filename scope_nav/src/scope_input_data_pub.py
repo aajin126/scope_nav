@@ -57,7 +57,7 @@ class ScopeInputDataPub:
         trans_odom = rot_odom = None
         # look up the current pose of the base_link using the tf tree
         try:
-            (trans,rot) = self.tf_listener.lookupTransform('/map', '/base_link', rospy.Time(0))
+            (trans,rot) = self.tf_listener.lookupTransform('/odom', '/base_link', rospy.Time(0))
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             rospy.logwarn('Could not get robot pose')
             return self.curr_pos

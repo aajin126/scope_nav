@@ -13,9 +13,9 @@
   </include> -->
 
   <!-- SLAM -->
-  <node pkg="slam_toolbox" type="lifelong_slam_toolbox_node" name="slam_toolbox" output="screen">
+  <!-- <node pkg="slam_toolbox" type="lifelong_slam_toolbox_node" name="slam_toolbox" output="screen">
       <rosparam command="load" file="$(find slam_toolbox)/config/mapper_params_lifelong.yaml" />
-  </node> 
+  </node>  -->
 
   <!-- Move base -->
   <include file="$(find scope_nav)/launch/includes/move_base_former.launch.xml">
