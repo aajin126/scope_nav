@@ -1,0 +1,7 @@
+<library path="lib/libtemporal_risk_aware_planner">
+  <class name="temporal_risk_aware_planner/TemporalRiskAwarePlanner" type="temporal_risk_aware_planner::TemporalRiskAwarePlanner" base_class_type="nav_core::BaseGlobalPlanner">
+    <description>
+      A implementation of a grid based planner using Dijkstras or A*
+    </description>
+  </class>
+</library>
