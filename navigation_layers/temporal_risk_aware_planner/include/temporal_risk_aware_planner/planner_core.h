@@ -59,6 +59,7 @@
 #include <vox_msgs/VoxGrid.h>
 #include <nav_msgs/Odometry.h>
 #include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 namespace temporal_risk_aware_planner {
 
@@ -185,6 +186,12 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         bool worldToMap(double wx, double wy, double& mx, double& my);
         void clearRobotCell(const geometry_msgs::PoseStamped& global_pose, unsigned int mx, unsigned int my);
         void publishPotential(float* potential);
+        struct PathCandidate {
+            std::vector<geometry_msgs::PoseStamped> path;
+            int homotopy_id;
+            double temporal_risk_score;
+        };
+
         double distance2D(const geometry_msgs::PoseStamped& a,
                           const geometry_msgs::PoseStamped& b) const;
         bool buildPlan(const geometry_msgs::PoseStamped& start,
@@ -204,6 +211,11 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
             size_t search_begin) const;     
         void publishSubgoalMarker(const geometry_msgs::PoseStamped& subgoal);
         void publishNearestMarker(const geometry_msgs::PoseStamped& nearest);
+        void publishPlanningDebugMarkers(
+            const std::vector<geometry_msgs::PoseStamped>& local_goal_line,
+            const std::vector<geometry_msgs::PoseStamped>& endpoints,
+            const std::vector<PathCandidate>& candidates,
+            const std::vector<geometry_msgs::PoseStamped>& selected_path);
         void voxGridCallback(const vox_msgs::VoxGrid::ConstPtr& msg);
         void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
         bool getTemporalRiskAt(double wx, double wy, double time_from_now, double& risk) const;
@@ -221,15 +233,10 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         void createLocalGoalLine(const geometry_msgs::PoseStamped& start, 
                                                    const geometry_msgs::PoseStamped& global_goal, 
                                                    bool is_near, 
-                                                   std::vector<geometry_msgs::PoseStamped>& endpoints);
+                                                   std::vector<geometry_msgs::PoseStamped>& endpoints,
+                                                   std::vector<geometry_msgs::PoseStamped>& local_goal_line);
         std::vector<geometry_msgs::PoseStamped> evalTemporalRisk(std::vector<PathCandidate>& candidates);  
         std::vector<std::pair<int, int>> Bresenham(const std::pair<int, int>& p1, const std::pair<int, int>& p2);
-        
-        struct PathCandidate {
-            std::vector<geometry_msgs::PoseStamped> path;
-            int homotopy_id;
-            double temporal_risk_score;
-        };
 
         double planner_window_x_, planner_window_y_, default_tolerance_;
         boost::mutex mutex_;
@@ -244,6 +251,7 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
 
         ros::Publisher subgoal_marker_pub_;
         ros::Publisher nearest_marker_pub_;
+        ros::Publisher planning_debug_marker_pub_;
 
         PotentialCalculator* p_calc_;
         Expander* planner_;
