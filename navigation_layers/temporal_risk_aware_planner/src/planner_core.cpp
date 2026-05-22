@@ -71,8 +71,8 @@ void TemporalRiskAwarePlanner::outlineMap(unsigned char* costarr, int nx, int ny
 TemporalRiskAwarePlanner::TemporalRiskAwarePlanner() :
         costmap_(NULL), initialized_(false), allow_unknown_(true),
         p_calc_(NULL), planner_(NULL), path_maker_(NULL), orientation_filter_(NULL),
-        potential_array_(NULL), has_global_goal_(false), has_subgoal_(false), last_nearest_idx_(0), has_voxgrid_(false), current_robot_speed_(0.0),
-        lookahead_dist_(4.0), subgoal_reached_dist_(1.5), global_goal_near_dist_(3.0), goal_tolerance_(0.2) {
+        potential_array_(NULL), has_global_goal_(false), has_voxgrid_(false), 
+        current_robot_speed_(0.0), lookahead_dist_(4.0), global_goal_near_dist_(1.0), goal_tolerance_(0.2) {
 }
 
 TemporalRiskAwarePlanner::TemporalRiskAwarePlanner(std::string name, costmap_2d::Costmap2D* costmap, std::string frame_id) :
@@ -240,77 +240,410 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
     if (!has_global_goal_ || isGoalChanged(goal)) 
     {
       
-        initial_start_ = start;
         global_goal_ = goal;
-
         has_global_goal_ = true;
-        last_global_goal_ = goal;
-        has_subgoal_ = false;
-
         previous_subpath_.clear();
-        reference_path_.clear();
-
-        last_nearest_idx_ = 0;
-
-        if (!buildPlan(initial_start_, global_goal_, reference_path_))  
-        {
-            return false;
-        }
     }
 
-    if (!has_subgoal_ || isPoseNear(start, subgoal_, subgoal_reached_dist_) || !isSubgoalSafe(subgoal_)) 
+    std::vector<geometry_msgs::PoseStamped> endpoints;
+    bool is_near = isPoseNear(start, global_goal_, global_goal_near_dist_);
+
+    if (is_near)
     {
+        ROS_INFO("Goal is very near. Switching to Direct Approach Mode.");
 
-        if (isPoseNear(start, global_goal_, global_goal_near_dist_)) {
-            subgoal_ = global_goal_;
-        } 
-        else 
-        {
+        if (buildPlan(start, global_goal_, sub_path)) {
+            plan = sub_path;           
+            previous_subpath_ = plan; 
+            publishPlan(plan); 
+            return !plan.empty();
+        }
+        else {
+            ROS_WARN("Direct approach failed. Falling back to homotopy logic.");
+        }
 
-            if (!selectSubgoal(start, subgoal_)) {
-                return false;
+    }
+
+    ROS_INFO("Goal is far. Generating local goal line and evaluating homotopy classes.");
+
+    createLocalGoalLine(start, global_goal_, is_near, endpoints);
+
+    std::vector<PathCandidate> candidates = findHomotopyPaths(start, endpoints);
+
+    if (candidates.empty()) {
+        ROS_ERROR("No valid paths found through any endpoints.");
+        return false;
+    }
+
+    if (previous_subpath_.empty()) {
+        plan = evalTemporalRisk(candidates);
+    } else {
+        bool h_match_found = false;
+        PathCandidate best_matching_candidate;
+        
+        for (const auto& cand : candidates) {
+            if (isSameHomotopy(previous_subpath_, cand.path, start)) {
+                if (cand.temporal_risk_score < 0.6) { 
+                    best_matching_candidate = cand;
+                    h_match_found = true;
+                    break;
+                }
             }
-        }  
-
-        has_subgoal_ = true;
-
-        // Publish subgoal marker for visualization
-        publishSubgoalMarker(subgoal_);
-
-        if (!buildPlan(start, subgoal_, sub_path)) 
-        {
-            return false;
         }
 
-        previous_subpath_ = sub_path;
-        plan = sub_path;
-        publishPlan(plan);
-
-        return !plan.empty();
-
+        if (h_match_found) {
+            ROS_INFO("Same Homotopy path found. Reusing current homotopy class.");
+            plan = best_matching_candidate.path;
+        } else {
+            ROS_INFO("Homotopy changed or block detected. Re-evaluating lowest risk path.");
+            plan = evalTemporalRisk(candidates);
+        }
     }
 
-
-    std::vector<geometry_msgs::PoseStamped> pruned_subpath;
-    pruneSubpath(start, pruned_subpath);
-
-    if (isTemporalRiskAcceptable(pruned_subpath) && !pruned_subpath.empty()) 
-    {
-        ROS_INFO("[DebugPlanner] [Zone B] Path is SAFE. Reusing the pruned subpath.");
-        sub_path = pruned_subpath;
-    } 
-    else 
-    {
-        buildPlan(start, subgoal_, sub_path);
-    }
-
-    previous_subpath_ = sub_path;
-    plan = sub_path;
+    previous_subpath_ = plan;
     publishPlan(plan);
+    return !plan.empty();
 
-    ROS_INFO("[DebugPlanner] [Zone B - FINAL RETURN] Returning plan with %lu points.", plan.size());
-    return true;
+}
 
+std::vector<PathCandidate> TemporalRiskAwarePlanner::findHomotopyPaths(const geometry_msgs::PoseStamped& start, 
+                                                                       const std::vector<geometry_msgs::PoseStamped>& endpoints)
+{
+
+    std::vector<PathCandidate> all_paths;
+    std::vector<std::vector<geometry_msgs::PoseStamped>> raw_paths(endpoints.size());
+    
+    //1. Generate paths to each endpoint
+    #pragma omp parallel for
+    for (size_t i = 0; i < endpoints.size(); ++i) {
+        std::vector<geometry_msgs::PoseStamped> single_plan;
+        if (buildPlan(start, endpoints[i], single_plan)) {
+            raw_paths[i] = single_plan;
+        }
+    }
+
+    // 2. Homotopy filtering
+    for (const auto& path : raw_paths) {
+        if (path.empty()) continue;
+
+        bool duplicate = false;
+        for (const auto& unique_cand : all_paths) {
+            if (isSameHomotopy(path, unique_cand.path, start)) {
+                duplicate = true;
+                break;
+            }
+        }
+
+        if (!duplicate) {
+            PathCandidate cand;
+            cand.path = path;
+            cand.temporal_risk_score = 0.0;
+            all_paths.push_back(cand);
+        }
+    }
+
+    return all_paths;
+
+}
+
+bool TemporalRiskAwarePlanner::isSameHomotopy(const std::vector<geometry_msgs::PoseStamped>& patha, 
+                                              const std::vector<geometry_msgs::PoseStamped>& pathb,
+                                              const geometry_msgs::PoseStamped& start) 
+{
+    if (patha.size() < 2 || pathb.size() < 2) return true;
+
+    // Directly pass the two paths into the obstacle checker (No polygon generation needed)
+    return !hasObstacleInside(patha, pathb, start);
+}
+
+bool TemporalRiskAwarePlanner::hasObstacleInside(const std::vector<geometry_msgs::PoseStamped>& patha,
+                                                 const std::vector<geometry_msgs::PoseStamped>& pathb,
+                                                 const geometry_msgs::PoseStamped& start) 
+{
+    if (patha.empty() || pathb.empty()) return false;
+
+    // 1. Convert ROS paths to simple double2 types for faster access
+    std::vector<double2> pathA, pathB;
+    for (const auto& p : patha) pathA.push_back(make_double2(p.pose.position.x, p.pose.position.y));
+    for (const auto& p : pathb) pathB.push_back(make_double2(p.pose.position.x, p.pose.position.y));
+
+    // 2. Calculate the center points of the endpoints of both paths
+    double2 endA = pathA.back();
+    double2 endB = pathB.back();
+    double center_end_x = (endA.x + endB.x) / 2.0;
+    double center_end_y = (endA.y + endB.y) / 2.0;
+
+    // 3. Compute the heading vector (V) from start (robot) to the center endpoint
+    double robot_x = start.pose.position.x;
+    double robot_y = start.pose.position.y;
+    double v_x = center_end_x - robot_x;
+    double v_y = center_end_y - robot_y;
+
+    // 4. Gather obstacle coordinates ONLY in the forward direction based on the heading vector
+    std::vector<double2> obstacles;
+    int map_w = costmap_->getSizeInCellsX();
+    int map_h = costmap_->getSizeInCellsY();
+    double ox = costmap_->getOriginX();
+    double oy = costmap_->getOriginY();
+    double res = costmap_->getResolution();
+    const unsigned char* char_map = costmap_->getCharMap();
+
+    for (int my = 0; my < map_h; ++my) {
+        for (int mx = 0; mx < map_w; ++mx) {
+            unsigned char cost = char_map[(size_t)my * map_w + mx];
+            
+            // Filter legal obstacle costs
+            if (cost >= 253) { 
+                double wx = ox + (mx + 0.5) * res;
+                double wy = oy + (my + 0.5) * res;
+
+                // Vector from robot to the current obstacle cell (W)
+                double w_x = wx - robot_x;
+                double w_y = wy - robot_y;
+
+                // Dot product calculation to determine if the obstacle is in front of the robot
+                double dot = v_x * w_x + v_y * w_y;
+
+                // Skip if the obstacle is behind the robot (dot product < 0)
+                if (dot < 0.0) continue;
+
+                obstacles.push_back(make_double2(wx, wy));
+            }
+        }
+    }
+
+    if (obstacles.empty()) return false;
+
+    bool obstacle_found = false;
+    int num_obstacles = obstacles.size();
+
+    // 5. OpenMP parallelized vertical ray-casting check using cross and dot products
+    #pragma omp parallel for shared(obstacle_found)
+    for (int i = 0; i < num_obstacles; ++i) {
+        if (obstacle_found) continue; // Early exit if another thread found an obstacle
+
+        double2 obs = obstacles[i];
+        int crossA = 0;
+        int crossB = 0;
+
+        // Check against PathA using perpendicular projection
+        for (size_t j = 0; j < pathA.size() - 1; ++j) {
+            double2 p1 = pathA[j];
+            double2 p2 = pathA[j+1];
+
+            double dx = p2.x - p1.x;
+            double dy = p2.y - p1.y;
+
+            if (std::abs(dx) < 1e-6 && std::abs(dy) < 1e-6) continue;
+
+            // Cross product to check if the obstacle lies on the left side of the segment
+            double cross_product = dx * (obs.y - p1.y) - dy * (obs.x - p1.x);
+            // Dot product to check if the projection falls within the segment bounds [p1, p2]
+            double dot_product = (obs.x - p1.x) * dx + (obs.y - p1.y) * dy;
+            double segment_len_sq = dx * dx + dy * dy;
+
+            if (dot_product >= 0 && dot_product <= segment_len_sq) {
+                if (cross_product > 0) { 
+                    crossA++;
+                }
+            }
+        }
+
+        // Check against PathB using perpendicular projection
+        for (size_t j = 0; j < pathB.size() - 1; ++j) {
+            double2 p1 = pathB[j];
+            double2 p2 = pathB[j+1];
+
+            double dx = p2.x - p1.x;
+            double dy = p2.y - p1.y;
+
+            if (std::abs(dx) < 1e-6 && std::abs(dy) < 1e-6) continue;
+
+            double cross_product = dx * (obs.y - p1.y) - dy * (obs.x - p1.x);
+            double dot_product = (obs.x - p1.x) * dx + (obs.y - p1.y) * dy;
+            double segment_len_sq = dx * dx + dy * dy;
+
+            if (dot_product >= 0 && dot_product <= segment_len_sq) {
+                if (cross_product > 0) {
+                    crossB++;
+                }
+            }
+        }
+
+        // If parity of crossings differs, the obstacle is blocked between two paths
+        if ((crossA % 2) != (crossB % 2)) {
+            obstacle_found = true;
+        }
+    }
+
+    return obstacle_found;
+}
+
+void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStamped& start, 
+                                                   const geometry_msgs::PoseStamped& global_goal, 
+                                                   bool is_near, 
+                                                   std::vector<geometry_msgs::PoseStamped>& endpoints)
+{
+
+    endpoints.clear();
+
+    // 1. Calculate the center and direction of the local goal line
+    double center_x = 0.0, center_y = 0.0;
+    double dx_w = global_goal.pose.position.x - start.pose.position.x;
+    double dy_w = global_goal.pose.position.y - start.pose.position.y;
+    double dist_to_goal = std::hypot(dx_w, dy_w);
+
+    if (dist_to_goal < 1e-3) {
+        endpoints.push_back(global_goal);
+        return;
+    }
+
+    if (is_near || dist_to_goal < lookahead_dist_) {
+        center_x = global_goal.pose.position.x;
+        center_y = global_goal.pose.position.y;
+    } else {
+        center_x = start.pose.position.x + (dx_w / dist_to_goal) * lookahead_dist_;
+        center_y = start.pose.position.y + (dy_w / dist_to_goal) * lookahead_dist_;
+    }
+
+    double heading_angle = std::atan2(dy_w, dx_w);
+    double perp_angle = heading_angle + M_PI / 2.0;
+
+    // Determine the width of the goal line (e.g., 2.5m for each side, 5.0m in total)
+    double half_line_width = 2.5; 
+    double end1_x = center_x + half_line_width * std::cos(perp_angle);
+    double end1_y = center_y + half_line_width * std::sin(perp_angle);
+    double end2_x = center_x - half_line_width * std::cos(perp_angle);
+    double end2_y = center_y - half_line_width * std::sin(perp_angle);
+
+    // 2. Convert world coordinates to costmap grid coordinates
+    unsigned int m_x1, m_y1, m_x2, m_y2;
+    if (!costmap_->worldToMap(end1_x, end1_y, m_x1, m_y1) ||
+        !costmap_->worldToMap(end2_x, end2_y, m_x2, m_y2)) {
+        ROS_WARN_THROTTLE(1.0, "Goal line endpoints are out of costmap bounds.");
+        return;
+    }
+
+    // 3. Using Bresenham to get all grid cells on the line
+    std::pair<int, int> p1 = {static_cast<int>(m_x1), static_cast<int>(m_y1)};
+    std::pair<int, int> p2 = {static_cast<int>(m_x2), static_cast<int>(m_y2)};
+    std::vector<std::pair<int, int>> bresenham_line = Bresenham(p1, p2);
+
+    // 4. Iterate through cells to check costs and perform obstacle segmentation
+    std::vector<std::vector<geometry_msgs::PoseStamped>> safe_segments;
+    std::vector<geometry_msgs::PoseStamped> current_segment;
+
+    for (const auto& cell : bresenham_line) {
+        int x = cell.first;
+        int y = cell.second;
+
+        // Boundary check for the costmap
+        if (x < 0 || x >= static_cast<int>(costmap_->getSizeInCellsX()) || 
+            y < 0 || y >= static_cast<int>(costmap_->getSizeInCellsY())) {
+            if (!current_segment.empty()) {
+                safe_segments.push_back(current_segment);
+                current_segment.clear();
+            }
+            continue;
+        }
+
+        unsigned char cost = costmap_->getCost(x, y);
+
+        // Check if the cell is free from lethal or inscribed obstacles
+        if (cost < 128) {
+            geometry_msgs::PoseStamped pt;
+            pt.header.frame_id = costmap_->getGlobalFrameID();
+            pt.header.stamp = ros::Time::now();
+            
+            // Convert grid coordinates back to world coordinates (meters)
+            costmap_->mapToWorld(x, y, pt.pose.position.x, pt.pose.position.y);
+            pt.pose.position.z = 0.0;
+            pt.pose.orientation = tf::createQuaternionMsgFromYaw(heading_angle);
+            
+            current_segment.push_back(pt);
+        } else {
+            // Split the line into segments when hitting an obstacle
+            if (!current_segment.empty()) {
+                safe_segments.push_back(current_segment);
+                current_segment.clear();
+            }
+        }
+    }
+    
+    // Add the remaining segment after the loop completes
+    if (!current_segment.empty()) {
+        safe_segments.push_back(current_segment);
+    }
+
+    // 5. Uniformly sample endpoints from each obstacle-free safe segment
+    int samples_per_segment = 1;
+
+    for (const auto& segment : safe_segments) {
+        // Noise filtering: Accept only valid passages with at least 4 continuous cells
+        if (segment.size() < 3) continue; 
+
+        for (int i = 0; i < samples_per_segment; ++i) {
+            int target_idx = (samples_per_segment > 1) ? 
+                             (i * (segment.size() - 1)) / (samples_per_segment - 1) : 0;
+            
+            endpoints.push_back(segment[target_idx]);
+        }
+    }
+
+}
+
+std::vector<geometry_msgs::PoseStamped> TemporalRiskAwarePlanner::evalTemporalRisk(std::vector<PathCandidate>& candidates)
+{
+
+}
+
+std::vector<std::pair<int, int>> TemporalRiskAwarePlanner::Bresenham(const std::pair<int, int>& p1, const std::pair<int, int>& p2)
+{
+    std::vector<std::pair<int, int>> line_vec = {p1};
+    
+    int dx = std::abs(p2.first - p1.first);
+    int dy = std::abs(p2.second - p1.second);
+    int sx = (p2.first > p1.first) ? 1 : -1;
+    int sy = (p2.second > p1.second) ? 1 : -1;
+    
+    int x = p1.first;
+    int y = p1.second;
+
+    if (dx > dy) {
+        int e = -dx;
+        for (int i = 0; i < dx; i++) {
+            x += sx;
+            e += 2 * dy;
+            line_vec.push_back({x, y});
+            if (e >= 0) {
+                y += sy;
+                e -= 2 * dx;
+                line_vec.push_back({x, y});
+            }
+        }
+    }
+    else if (dx < dy) {
+        int e = -dy;
+        for (int i = 0; i < dy; i++) {
+            y += sy;
+            e += 2 * dx;
+            line_vec.push_back({x, y});
+            if (e >= 0) {
+                x += sx;
+                e -= 2 * dy;
+                line_vec.push_back({x, y});
+            }
+        }
+    }
+    else { // dx == dy
+        for (int i = 0; i < dx; i++) {
+            x += sx;
+            y += sy;
+            line_vec.push_back({x, y});
+        }
+    }
+
+    return line_vec;
 }
 
 bool TemporalRiskAwarePlanner::buildPlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,
@@ -446,255 +779,6 @@ bool TemporalRiskAwarePlanner::isPoseNear(const geometry_msgs::PoseStamped& a,
     ROS_INFO("--- [DEBUG 2] Dist to Subgoal: %.2f ---", dist);
     return dist <= tolerance;
 }
-
-bool TemporalRiskAwarePlanner::isSubgoalSafe(const geometry_msgs::PoseStamped& pose) {
-
-    if (!costmap_) return false;
-
-    unsigned int mx, my;
-    if (costmap_->worldToMap(pose.pose.position.x, pose.pose.position.y, mx, my)) {
-        unsigned char cost = costmap_->getCost(mx, my);
-        
-        if (cost >= costmap_2d::INSCRIBED_INFLATED_OBSTACLE) {
-            return false;
-        }
-        return true;
-    }
-    return false;
-}
-
-bool TemporalRiskAwarePlanner::selectSubgoal(const geometry_msgs::PoseStamped& start, geometry_msgs::PoseStamped& subgoal) 
-{
-    const size_t search_begin = last_nearest_idx_;
-
-    size_t nearest_idx = findNearestIdx(start, reference_path_, search_begin);
-    
-    last_nearest_idx_ = nearest_idx;
-    
-    publishNearestMarker(reference_path_[nearest_idx]);
-
-    size_t target_idx = nearest_idx;
-    double accumulated_dist = 0.0;
-    
-    for (size_t i = nearest_idx; i + 1 < reference_path_.size(); ++i) {
-        double dx = reference_path_[i+1].pose.position.x - reference_path_[i].pose.position.x;
-        double dy = reference_path_[i+1].pose.position.y - reference_path_[i].pose.position.y;
-        accumulated_dist += std::sqrt(dx*dx + dy*dy);
-        
-        if (accumulated_dist >= lookahead_dist_) {
-            target_idx = i + 1;
-            break;
-        }
-    }
-
-    if (isSubgoalSafe(reference_path_[target_idx])) {
-        subgoal = reference_path_[target_idx];
-        return true;
-    }
-    else {
-
-        ROS_WARN("[TemporalPlanner] Target subgoal at idx %lu is UNSAFE, reselecting...", target_idx);
-        
-        for (size_t j = target_idx + 1; j < reference_path_.size(); ++j) {
-            if (isSubgoalSafe(reference_path_[j])) {
-                subgoal = reference_path_[j];
-                return true;
-            }
-        }
-        
-        if (isSubgoalSafe(global_goal_)) {
-            subgoal = global_goal_;
-            return true;
-        }
-    }
-
-    return false;
-                                                
-}
-
-size_t TemporalRiskAwarePlanner::findNearestIdx(
-    const geometry_msgs::PoseStamped& start,
-    const std::vector<geometry_msgs::PoseStamped>& path,
-    size_t search_begin) const
-{
-  if (path.empty())
-  {
-    return 0;
-  }
-
-  if (search_begin >= path.size())
-  {
-    search_begin = path.size() - 1;
-  }
-
-  size_t best_index = search_begin;
-  double best_dist = distance2D(start, path[search_begin]);
-
-  size_t previous_index = search_begin;
-  double previous_dist = best_dist;
-
-  for (size_t i = search_begin + 1; i < path.size(); ++i)
-  {
-    const double current_dist = distance2D(start, path[i]);
-
-    if (previous_dist <= current_dist)
-    {
-      return previous_index;
-    }
-
-    if (current_dist < best_dist)
-    {
-      best_dist = current_dist;
-      best_index = i;
-    }
-
-    previous_index = i;
-    previous_dist = current_dist;
-  }
-
-  return best_index;
-}
-
-
-void TemporalRiskAwarePlanner::pruneSubpath(const geometry_msgs::PoseStamped& start,
-                                            std::vector<geometry_msgs::PoseStamped>& pruned_subpath) const 
-{
-    pruned_subpath.clear();
-
-    if (previous_subpath_.empty()) {
-        ROS_WARN("Previous subpath is empty. Cannot prune subpath.");
-        return;
-    }
-
-    const size_t nearest_idx = findNearestIdx(start, previous_subpath_, 0);
-
-    pruned_subpath.assign(
-        previous_subpath_.begin() + nearest_idx,
-        previous_subpath_.end());
-}
-
-bool TemporalRiskAwarePlanner::isTemporalRiskAcceptable(const std::vector<geometry_msgs::PoseStamped>& path) const
-{
-
-    const int width  = static_cast<int>(latest_voxgrid_.width);
-    const int height = static_cast<int>(latest_voxgrid_.height);
-    const int depth  = static_cast<int>(latest_voxgrid_.depth);
-
-    if (!has_voxgrid_) {
-        ROS_WARN("[TemporalRisk] Return TRUE: has_voxgrid_ is FALSE (No data available yet).");
-        return true; 
-    }
-
-    if (width <= 0 || height <= 0 || depth <= 0 ||
-        latest_voxgrid_.dl <= 0.0 || latest_voxgrid_.dt <= 0.0) {
-        return true;
-    }
-
-    if (width <= 0 || height <= 0 || depth <= 0 ||
-        latest_voxgrid_.dl <= 0.0 || latest_voxgrid_.dt <= 0.0) {
-        ROS_WARN("[TemporalRisk] Return TRUE: Invalid Grid Dimensions or Resolutions. (W:%d, H:%d, D:%d, dl:%.3f, dt:%.3f)",
-                        width, height, depth, latest_voxgrid_.dl, latest_voxgrid_.dt);
-        return true;
-    }
-
-    const size_t slice_size = static_cast<size_t>(width) * height;
-
-    const double speed = std::max(current_robot_speed_, 0.1);
-    
-    std::vector<double> time_risk_sum(depth, 0.0);
-    std::vector<int> time_risk_count(depth, 0);
-
-    double accumulated_dist = 0.0;
-    double max_risk = 0.0;
-
-    ROS_INFO("[TemporalRisk] ===== Starting Path Evaluation =====");
-    ROS_INFO("[TemporalRisk] Path Size: %lu points, Current Speed: %.2f m/s", path.size(), speed);
-    
-    for (size_t i = 0; i < path.size(); ++i) 
-    {
-        
-        if (i > 0) 
-        {
-            const double dx = path[i].pose.position.x - path[i - 1].pose.position.x;
-            const double dy = path[i].pose.position.y - path[i - 1].pose.position.y;
-
-            accumulated_dist += std::sqrt(dx * dx + dy * dy);
-        }
-
-        const double arrival_time = accumulated_dist / speed;
-
-        int t_idx = static_cast<int>(
-            std::floor(arrival_time / latest_voxgrid_.dt));
-
-        t_idx = std::min(t_idx, depth - 1);
-
-        const double wx = path[i].pose.position.x;
-        const double wy = path[i].pose.position.y;
-
-        const int x_idx = static_cast<int>(std::floor((wx - latest_voxgrid_.origin.x) / latest_voxgrid_.dl));
-
-        const int y_idx = static_cast<int>(std::floor((wy - latest_voxgrid_.origin.y) / latest_voxgrid_.dl));
-
-        if (x_idx < 0 || y_idx < 0 || x_idx >= width || y_idx >= height) 
-        {
-            ROS_INFO("[TemporalRisk] Loop CONTINUE: Pt %lu is Out of Bounds. (x_idx:%d, y_idx:%d, W:%d, H:%d)", 
-                                i, x_idx, y_idx, width, height);
-            continue;
-        }
-
-        const size_t index =
-            static_cast<size_t>(t_idx) * slice_size +
-            static_cast<size_t>(y_idx) * width +
-            static_cast<size_t>(x_idx);
-
-        const double risk = static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
-
-        time_risk_sum[t_idx] += risk;
-        time_risk_count[t_idx]++;
-
-        max_risk = std::max(max_risk, risk);
-
-        ROS_INFO("[TemporalRisk] Time step %d, risk: %.2f", t_idx, risk);
-
-        if (max_risk > 0.6) 
-        {
-            ROS_WARN("[TemporalRisk] Return FALSE: Immediate Lethal Collision Detected! Pt %lu Max Risk (%.2f) > 0.6", i, max_risk);
-            return false;
-        }
-    }
-
-    double first_risk = -1.0;
-    double max_time_risk = 0.0;
-
-    for (int t = 0; t < depth; ++t) {
-        if (time_risk_count[t] == 0) {
-            continue;
-        }
-
-        const double mean_risk_t = time_risk_sum[t] / static_cast<double>(time_risk_count[t]);
-
-        if (first_risk < 0.0) {
-            first_risk = mean_risk_t;
-        }
-
-        max_time_risk = std::max(max_time_risk, mean_risk_t);
-    }
-
-    if (first_risk < 0.0) {
-        return true;
-    }
-
-    const double risk_trend = max_time_risk - first_risk;
-
-    ROS_INFO("[TemporalRisk] Risk trend: %.2f", risk_trend);
-
-    if (risk_trend > 0.2) {
-        return false;
-    }
-
-    return true;
-}
-
 
 void TemporalRiskAwarePlanner::odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
 {

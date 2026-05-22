@@ -210,6 +210,26 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         void pruneSubpath(const geometry_msgs::PoseStamped& start,
                           std::vector<geometry_msgs::PoseStamped>& pruned_subpath) const;
         bool isTemporalRiskAcceptable(const std::vector<geometry_msgs::PoseStamped>& path) const;
+        std::vector<PathCandidate> findHomotopyPaths(const geometry_msgs::PoseStamped& start, 
+                                                                       const std::vector<geometry_msgs::PoseStamped>& endpoints);
+        bool isSameHomotopy(const std::vector<geometry_msgs::PoseStamped>& patha, 
+                              const std::vector<geometry_msgs::PoseStamped>& pathb,
+                              const geometry_msgs::PoseStamped& start);
+        bool hasObstacleInside(const std::vector<geometry_msgs::PoseStamped>& patha,
+                               const std::vector<geometry_msgs::PoseStamped>& pathb,
+                               const geometry_msgs::PoseStamped& start);
+        void createLocalGoalLine(const geometry_msgs::PoseStamped& start, 
+                                                   const geometry_msgs::PoseStamped& global_goal, 
+                                                   bool is_near, 
+                                                   std::vector<geometry_msgs::PoseStamped>& endpoints);
+        std::vector<geometry_msgs::PoseStamped> evalTemporalRisk(std::vector<PathCandidate>& candidates);  
+        std::vector<std::pair<int, int>> Bresenham(const std::pair<int, int>& p1, const std::pair<int, int>& p2);
+        
+        struct PathCandidate {
+            std::vector<geometry_msgs::PoseStamped> path;
+            int homotopy_id;
+            double temporal_risk_score;
+        };
 
         double planner_window_x_, planner_window_y_, default_tolerance_;
         boost::mutex mutex_;
@@ -245,18 +265,13 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         bool outline_map_;
 
         bool has_global_goal_;
-        bool has_subgoal_;
-        double subgoal_reached_dist_;
         double global_goal_near_dist_;
         double goal_tolerance_;
         double lookahead_dist_;
-        size_t last_nearest_idx_;
         geometry_msgs::PoseStamped initial_start_;
         geometry_msgs::PoseStamped global_goal_;
         geometry_msgs::PoseStamped last_global_goal_;
-        geometry_msgs::PoseStamped subgoal_;
         std::vector<geometry_msgs::PoseStamped> previous_subpath_;
-        std::vector<geometry_msgs::PoseStamped> reference_path_;
 
         dynamic_reconfigure::Server<temporal_risk_aware_planner::TemporalRiskAwarePlannerConfig> *dsrv_;
         void reconfigureCB(temporal_risk_aware_planner::TemporalRiskAwarePlannerConfig &config, uint32_t level);
