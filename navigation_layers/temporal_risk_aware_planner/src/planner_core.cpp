@@ -71,8 +71,8 @@ void TemporalRiskAwarePlanner::outlineMap(unsigned char* costarr, int nx, int ny
 TemporalRiskAwarePlanner::TemporalRiskAwarePlanner() :
         costmap_(NULL), initialized_(false), allow_unknown_(true),
         p_calc_(NULL), planner_(NULL), path_maker_(NULL), orientation_filter_(NULL),
-        potential_array_(NULL), has_global_goal_(false), has_subgoal_(false), last_nearest_idx_(0), has_voxgrid_(false), obstacle_threshold_(254), current_robot_speed_(0.0),
-        lookahead_dist_(2.0), subgoal_reached_dist_(0.1), global_goal_near_dist_(3.0), goal_tolerance_(0.2), inflation_radius_(0.4), inflation_decay_(3.0) {
+        potential_array_(NULL), has_global_goal_(false), has_subgoal_(false), last_nearest_idx_(0), has_voxgrid_(false), current_robot_speed_(0.0),
+        lookahead_dist_(4.0), subgoal_reached_dist_(1.5), global_goal_near_dist_(3.0), goal_tolerance_(0.2) {
 }
 
 TemporalRiskAwarePlanner::TemporalRiskAwarePlanner(std::string name, costmap_2d::Costmap2D* costmap, std::string frame_id) :
@@ -118,7 +118,7 @@ void TemporalRiskAwarePlanner::initialize(std::string name, costmap_2d::Costmap2
             p_calc_ = new PotentialCalculator(cx, cy);
 
         bool use_dijkstra;
-        private_nh.param("use_dijkstra", use_dijkstra, true);
+        private_nh.param("use_dijkstra", use_dijkstra, false);
         if (use_dijkstra)
         {
             DijkstraExpansion* de = new DijkstraExpansion(p_calc_, cx, cy);
@@ -130,7 +130,7 @@ void TemporalRiskAwarePlanner::initialize(std::string name, costmap_2d::Costmap2
             planner_ = new AStarExpansion(p_calc_, cx, cy);
 
         bool use_grid_path;
-        private_nh.param("use_grid_path", use_grid_path, false);
+        private_nh.param("use_grid_path", use_grid_path, true);
         if (use_grid_path)
             path_maker_ = new GridPath(p_calc_);
         else
@@ -140,6 +140,8 @@ void TemporalRiskAwarePlanner::initialize(std::string name, costmap_2d::Costmap2
 
         plan_pub_ = private_nh.advertise<nav_msgs::Path>("plan", 1);
         potential_pub_ = private_nh.advertise<nav_msgs::OccupancyGrid>("potential", 1);
+        subgoal_marker_pub_ = private_nh.advertise<visualization_msgs::Marker>("subgoal_marker", 1);
+        nearest_marker_pub_ = private_nh.advertise<visualization_msgs::Marker>("nearest_marker", 1);
 
         private_nh.param("allow_unknown", allow_unknown_, true);
         planner_->setHasUnknown(allow_unknown_);
@@ -148,10 +150,8 @@ void TemporalRiskAwarePlanner::initialize(std::string name, costmap_2d::Costmap2
         private_nh.param("default_tolerance", default_tolerance_, 0.0);
         private_nh.param("publish_scale", publish_scale_, 100);
         private_nh.param("outline_map", outline_map_, true);
-        private_nh.param("inflation_radius", inflation_radius_, 0.4);
-        private_nh.param("inflation_decay", inflation_decay_, 3.0);
-        private_nh.param("obstacle_threshold", obstacle_threshold_, 254);
         voxgrid_sub_ = private_nh.subscribe("/temporal_grid_local_map",1,&TemporalRiskAwarePlanner::voxGridCallback,this);
+        std::string odom_topic;
         private_nh.param("odom_topic", odom_topic, std::string("/odom"));
         odom_sub_ = private_nh.subscribe(odom_topic, 1, &TemporalRiskAwarePlanner::odomCallback, this);
 
@@ -236,8 +236,10 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
 
     std::vector<geometry_msgs::PoseStamped> sub_path;
 
+
     if (!has_global_goal_ || isGoalChanged(goal)) 
     {
+      
         initial_start_ = start;
         global_goal_ = goal;
 
@@ -256,7 +258,7 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
         }
     }
 
-    if (!has_subgoal_ || isPoseNear(start, subgoal_, subgoal_reached_dist_)) 
+    if (!has_subgoal_ || isPoseNear(start, subgoal_, subgoal_reached_dist_) || !isSubgoalSafe(subgoal_)) 
     {
 
         if (isPoseNear(start, global_goal_, global_goal_near_dist_)) {
@@ -264,12 +266,16 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
         } 
         else 
         {
+
             if (!selectSubgoal(start, subgoal_)) {
                 return false;
             }
-        }
+        }  
 
         has_subgoal_ = true;
+
+        // Publish subgoal marker for visualization
+        publishSubgoalMarker(subgoal_);
 
         if (!buildPlan(start, subgoal_, sub_path)) 
         {
@@ -279,34 +285,30 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
         previous_subpath_ = sub_path;
         plan = sub_path;
         publishPlan(plan);
+
         return !plan.empty();
+
     }
+
 
     std::vector<geometry_msgs::PoseStamped> pruned_subpath;
     pruneSubpath(start, pruned_subpath);
 
-    if (evaluateTemporalRisk(pruned_subpath) && !pruned_subpath.empty()) 
+    if (isTemporalRiskAcceptable(pruned_subpath) && !pruned_subpath.empty()) 
     {
+        ROS_INFO("[DebugPlanner] [Zone B] Path is SAFE. Reusing the pruned subpath.");
         sub_path = pruned_subpath;
     } 
     else 
     {
-        if (!buildPlan(start, subgoal_, sub_path)) 
-        {
-            if (!pruned_subpath.empty()) 
-            {
-                sub_path = pruned_subpath;
-            } 
-            else 
-            {
-                return false;
-            }
-        }
+        buildPlan(start, subgoal_, sub_path);
     }
 
     previous_subpath_ = sub_path;
     plan = sub_path;
     publishPlan(plan);
+
+    ROS_INFO("[DebugPlanner] [Zone B - FINAL RETURN] Returning plan with %lu points.", plan.size());
     return true;
 
 }
@@ -440,42 +442,75 @@ bool TemporalRiskAwarePlanner::isPoseNear(const geometry_msgs::PoseStamped& a,
                                           const geometry_msgs::PoseStamped& b,
                                           double tolerance) const 
 {
-    return distance2D(a, b) <= tolerance;
+    double dist= distance2D(a, b);
+    ROS_INFO("--- [DEBUG 2] Dist to Subgoal: %.2f ---", dist);
+    return dist <= tolerance;
 }
 
-bool TemporalRiskAwarePlanner::selectSubgoal(const geometry_msgs::PoseStamped& start,
-                                             geometry_msgs::PoseStamped& subgoal) 
+bool TemporalRiskAwarePlanner::isSubgoalSafe(const geometry_msgs::PoseStamped& pose) {
+
+    if (!costmap_) return false;
+
+    unsigned int mx, my;
+    if (costmap_->worldToMap(pose.pose.position.x, pose.pose.position.y, mx, my)) {
+        unsigned char cost = costmap_->getCost(mx, my);
+        
+        if (cost >= costmap_2d::INSCRIBED_INFLATED_OBSTACLE) {
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool TemporalRiskAwarePlanner::selectSubgoal(const geometry_msgs::PoseStamped& start, geometry_msgs::PoseStamped& subgoal) 
 {
     const size_t search_begin = last_nearest_idx_;
 
     size_t nearest_idx = findNearestIdx(start, reference_path_, search_begin);
     
     last_nearest_idx_ = nearest_idx;
+    
+    publishNearestMarker(reference_path_[nearest_idx]);
 
+    size_t target_idx = nearest_idx;
     double accumulated_dist = 0.0;
-
+    
     for (size_t i = nearest_idx; i + 1 < reference_path_.size(); ++i) {
-        const double dx =
-            reference_path_[i + 1].pose.position.x -
-            reference_path_[i].pose.position.x;
-
-        const double dy =
-            reference_path_[i + 1].pose.position.y -
-            reference_path_[i].pose.position.y;
-
-        accumulated_dist += std::sqrt(dx * dx + dy * dy);
-
+        double dx = reference_path_[i+1].pose.position.x - reference_path_[i].pose.position.x;
+        double dy = reference_path_[i+1].pose.position.y - reference_path_[i].pose.position.y;
+        accumulated_dist += std::sqrt(dx*dx + dy*dy);
+        
         if (accumulated_dist >= lookahead_dist_) {
-            subgoal = reference_path_[i + 1];
+            target_idx = i + 1;
+            break;
+        }
+    }
+
+    if (isSubgoalSafe(reference_path_[target_idx])) {
+        subgoal = reference_path_[target_idx];
+        return true;
+    }
+    else {
+
+        ROS_WARN("[TemporalPlanner] Target subgoal at idx %lu is UNSAFE, reselecting...", target_idx);
+        
+        for (size_t j = target_idx + 1; j < reference_path_.size(); ++j) {
+            if (isSubgoalSafe(reference_path_[j])) {
+                subgoal = reference_path_[j];
+                return true;
+            }
+        }
+        
+        if (isSubgoalSafe(global_goal_)) {
+            subgoal = global_goal_;
             return true;
         }
     }
 
-    subgoal = global_goal_;
-    return true;
+    return false;
                                                 
 }
-
 
 size_t TemporalRiskAwarePlanner::findNearestIdx(
     const geometry_msgs::PoseStamped& start,
@@ -538,10 +573,15 @@ void TemporalRiskAwarePlanner::pruneSubpath(const geometry_msgs::PoseStamped& st
         previous_subpath_.end());
 }
 
-bool TemporalRiskAwarePlanner::evaluateTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const
+bool TemporalRiskAwarePlanner::isTemporalRiskAcceptable(const std::vector<geometry_msgs::PoseStamped>& path) const
 {
 
-    if (!has_voxgrid_ || inflated_voxgrid_data_.empty()) {
+    const int width  = static_cast<int>(latest_voxgrid_.width);
+    const int height = static_cast<int>(latest_voxgrid_.height);
+    const int depth  = static_cast<int>(latest_voxgrid_.depth);
+
+    if (!has_voxgrid_) {
+        ROS_WARN("[TemporalRisk] Return TRUE: has_voxgrid_ is FALSE (No data available yet).");
         return true; 
     }
 
@@ -550,18 +590,16 @@ bool TemporalRiskAwarePlanner::evaluateTemporalRisk(const std::vector<geometry_m
         return true;
     }
 
-    const int width  = static_cast<int>(latest_voxgrid_.width);
-    const int height = static_cast<int>(latest_voxgrid_.height);
-    const int depth  = static_cast<int>(latest_voxgrid_.depth);
-
     if (width <= 0 || height <= 0 || depth <= 0 ||
         latest_voxgrid_.dl <= 0.0 || latest_voxgrid_.dt <= 0.0) {
+        ROS_WARN("[TemporalRisk] Return TRUE: Invalid Grid Dimensions or Resolutions. (W:%d, H:%d, D:%d, dl:%.3f, dt:%.3f)",
+                        width, height, depth, latest_voxgrid_.dl, latest_voxgrid_.dt);
         return true;
     }
 
     const size_t slice_size = static_cast<size_t>(width) * height;
 
-    const double speed = std::max(current_robot_speed_, 0.05);
+    const double speed = std::max(current_robot_speed_, 0.1);
     
     std::vector<double> time_risk_sum(depth, 0.0);
     std::vector<int> time_risk_count(depth, 0);
@@ -569,7 +607,11 @@ bool TemporalRiskAwarePlanner::evaluateTemporalRisk(const std::vector<geometry_m
     double accumulated_dist = 0.0;
     double max_risk = 0.0;
 
-    for (size_t i = 0; i < path.size(); ++i) {
+    ROS_INFO("[TemporalRisk] ===== Starting Path Evaluation =====");
+    ROS_INFO("[TemporalRisk] Path Size: %lu points, Current Speed: %.2f m/s", path.size(), speed);
+    
+    for (size_t i = 0; i < path.size(); ++i) 
+    {
         
         if (i > 0) 
         {
@@ -595,6 +637,8 @@ bool TemporalRiskAwarePlanner::evaluateTemporalRisk(const std::vector<geometry_m
 
         if (x_idx < 0 || y_idx < 0 || x_idx >= width || y_idx >= height) 
         {
+            ROS_INFO("[TemporalRisk] Loop CONTINUE: Pt %lu is Out of Bounds. (x_idx:%d, y_idx:%d, W:%d, H:%d)", 
+                                i, x_idx, y_idx, width, height);
             continue;
         }
 
@@ -603,15 +647,18 @@ bool TemporalRiskAwarePlanner::evaluateTemporalRisk(const std::vector<geometry_m
             static_cast<size_t>(y_idx) * width +
             static_cast<size_t>(x_idx);
 
-        const double risk = static_cast<double>(inflated_voxgrid_data_[index]) / 255.0;
+        const double risk = static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
 
         time_risk_sum[t_idx] += risk;
         time_risk_count[t_idx]++;
 
         max_risk = std::max(max_risk, risk);
 
+        ROS_INFO("[TemporalRisk] Time step %d, risk: %.2f", t_idx, risk);
+
         if (max_risk > 0.6) 
         {
+            ROS_WARN("[TemporalRisk] Return FALSE: Immediate Lethal Collision Detected! Pt %lu Max Risk (%.2f) > 0.6", i, max_risk);
             return false;
         }
     }
@@ -639,6 +686,8 @@ bool TemporalRiskAwarePlanner::evaluateTemporalRisk(const std::vector<geometry_m
 
     const double risk_trend = max_time_risk - first_risk;
 
+    ROS_INFO("[TemporalRisk] Risk trend: %.2f", risk_trend);
+
     if (risk_trend > 0.2) {
         return false;
     }
@@ -659,92 +708,50 @@ void TemporalRiskAwarePlanner::voxGridCallback(const vox_msgs::VoxGrid::ConstPtr
     boost::mutex::scoped_lock lock(mutex_);
 
     latest_voxgrid_ = *msg;
-    inflated_voxgrid_data_.clear();
 
-    inflateVoxGrid();
-
-    has_voxgrid_ = !inflated_voxgrid_data_.empty();
+    has_voxgrid_ = !latest_voxgrid_.data.empty();
 }
 
-void TemporalRiskAwarePlanner::inflateVoxGrid()
-{
-    const int width  = static_cast<int>(latest_voxgrid_.width);
-    const int height = static_cast<int>(latest_voxgrid_.height);
-    const int depth  = static_cast<int>(latest_voxgrid_.depth);
-
-    if (width <= 0 || height <= 0 || depth <= 0 ||
-        latest_voxgrid_.dl <= 0.0 || inflation_radius_ <= 0.0) {
-        return;
-    }
-
-    const size_t slice_size = static_cast<size_t>(width) * height;
-    const size_t total_size = slice_size * depth;
-
-    if (latest_voxgrid_.data.size() != total_size) {
-        ROS_WARN("VoxGrid data size mismatch.");
-        return;
-    }
-
-    // 1. preserve raw prediction costs
-    inflated_voxgrid_data_ = latest_voxgrid_.data;
-
-    const int radius_cells =
-        static_cast<int>(std::ceil(inflation_radius_ / latest_voxgrid_.dl));
-
-    #pragma omp parallel for
-    for (int t = 0; t < depth; ++t) {
-        const size_t offset = static_cast<size_t>(t) * slice_size;
-
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                const size_t src_idx = offset + static_cast<size_t>(y) * width + x;
-                const unsigned char raw_cost = latest_voxgrid_.data[src_idx];
-
-                // 2. use only obstacle cell as inflation source
-                if (raw_cost < obstacle_threshold_) {
-                    continue;
-                }
-
-                inflated_voxgrid_data_[src_idx] = 255;
-
-                for (int dy = -radius_cells; dy <= radius_cells; ++dy) {
-                    for (int dx = -radius_cells; dx <= radius_cells; ++dx) {
-                        const int nx = x + dx;
-                        const int ny = y + dy;
-
-                        if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
-                            continue;
-                        }
-
-                        const double dist_m =
-                            std::sqrt(static_cast<double>(dx * dx + dy * dy)) *
-                            latest_voxgrid_.dl;
-
-                        if (dist_m > inflation_radius_) {
-                            continue;
-                        }
-
-                        double factor =
-                            1.0 - inflation_decay_ * (dist_m / inflation_radius_);
-
-                        factor = std::max(0.0, std::min(1.0, factor));
-
-                        const unsigned char inflated_cost =
-                            static_cast<unsigned char>(255.0 * factor);
-
-                        const size_t dst_idx =
-                            offset + static_cast<size_t>(ny) * width + nx;
-
-                        if (inflated_cost > inflated_voxgrid_data_[dst_idx]) {
-                            inflated_voxgrid_data_[dst_idx] = inflated_cost;
-                        }
-                    }
-                }
-            }
-        }
-    }
+// Publish subgoal as a Marker for RViz visualization
+void TemporalRiskAwarePlanner::publishSubgoalMarker(const geometry_msgs::PoseStamped& subgoal) {
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = subgoal.header.frame_id;
+    marker.header.stamp = ros::Time::now();
+    marker.ns = "subgoal";
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::SPHERE;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose = subgoal.pose;
+    marker.scale.x = 0.2;
+    marker.scale.y = 0.2;
+    marker.scale.z = 0.2;
+    marker.color.r = 0.0f;
+    marker.color.g = 1.0f;
+    marker.color.b = 1.0f;
+    marker.color.a = 0.8f;
+    marker.lifetime = ros::Duration(0.0);
+    subgoal_marker_pub_.publish(marker);
 }
 
+void TemporalRiskAwarePlanner::publishNearestMarker(const geometry_msgs::PoseStamped& nearest) {
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = nearest.header.frame_id;
+    marker.header.stamp = ros::Time::now();
+    marker.ns = "nearest";
+    marker.id = 0;
+    marker.type = visualization_msgs::Marker::SPHERE;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose = nearest.pose;
+    marker.scale.x = 0.2;
+    marker.scale.y = 0.2;
+    marker.scale.z = 0.2;
+    marker.color.r = 1.0f;
+    marker.color.g = 0.0f;
+    marker.color.b = 0.0f;
+    marker.color.a = 0.8f;
+    marker.lifetime = ros::Duration(0.0);
+    nearest_marker_pub_.publish(marker);
+}
 
 void TemporalRiskAwarePlanner::publishPlan(const std::vector<geometry_msgs::PoseStamped>& path) {
     if (!initialized_) {

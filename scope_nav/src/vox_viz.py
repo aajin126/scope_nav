@@ -35,5 +35,5 @@ def voxgrid_callback(msg):
 if __name__ == "__main__":
     rospy.init_node("voxgrid_viz")
     marker_pub = rospy.Publisher("voxgrid_marker", Marker, queue_size=1)
-    rospy.Subscriber("/plan_costmap_3D", VoxGrid, voxgrid_callback)
+    rospy.Subscriber("/temporal_grid_local_map", VoxGrid, voxgrid_callback)
     rospy.spin()

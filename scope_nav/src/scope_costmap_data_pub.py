@@ -82,7 +82,7 @@ class ScopeCostmap:
         self.scope_prediction_pub = rospy.Publisher('scope_prediction', People, queue_size=1, latch=False)
         self.scope_uncertainty_pub = rospy.Publisher('scope_uncertainty', People, queue_size=1, latch=False)
         self.local_map_pub = rospy.Publisher('local_map', OccupancyGrid, queue_size=1, latch=False)
-        self.voxgrid_pub = rospy.Publisher('plan_costmap_3D', VoxGrid, queue_size=1, latch=False)
+        self.voxgrid_pub = rospy.Publisher('temporal_grid_local_map', VoxGrid, queue_size=1, latch=False)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         base_configs = rospy.get_param("~base_configs")
@@ -234,93 +234,120 @@ class ScopeCostmap:
             # t1 = time.perf_counter()
             # print(f"[DEBUG] bit-packing time: {(t1 - t0)*1000:.3f} ms")
 
-            ### visualize voxgrid map: 
+            ## visualize voxgrid map: 
 
-            # xmin = MAP_X_LIMIT[0]
-            # xmax = MAP_X_LIMIT[1]
-            # ymin = MAP_Y_LIMIT[0]
-            # ymax = MAP_Y_LIMIT[1]
+            xmin = MAP_X_LIMIT[0]
+            xmax = MAP_X_LIMIT[1]
+            ymin = MAP_Y_LIMIT[0]
+            ymax = MAP_Y_LIMIT[1]
 
-            # corners_local = torch.tensor([
-            #     [xmin, ymin],
-            #     [xmin, ymax],
-            #     [xmax, ymin],
-            #     [xmax, ymax],
-            # ], device=pos_origin.device, dtype=pos_origin.dtype)
+            corners_local = torch.tensor([
+                [xmin, ymin],
+                [xmin, ymax],
+                [xmax, ymin],
+                [xmax, ymax],
+            ], device=pos_origin.device, dtype=pos_origin.dtype)
 
-            # x0 = pos_origin[0, 0]
-            # y0 = pos_origin[0, 1]
-            # th = pos_origin[0, 2]
+            x0 = pos_origin[0, 0]
+            y0 = pos_origin[0, 1]
+            th = pos_origin[0, 2]
 
-            # ct = torch.cos(th)
-            # st = torch.sin(th)
+            ct = torch.cos(th)
+            st = torch.sin(th)
 
-            # cx = corners_local[:, 0]
-            # cy = corners_local[:, 1]
+            cx = corners_local[:, 0]
+            cy = corners_local[:, 1]
 
-            # corners_x_map = x0 + ct * cx - st * cy
-            # corners_y_map = y0 + st * cx + ct * cy
+            corners_x_map = x0 + ct * cx - st * cy
+            corners_y_map = y0 + st * cx + ct * cy
 
-            # map_x_min = corners_x_map.min()
-            # map_x_max = corners_x_map.max()
-            # map_y_min = corners_y_map.min()
-            # map_y_max = corners_y_map.max()
+            map_x_min = corners_x_map.min()
+            map_x_max = corners_x_map.max()
+            map_y_min = corners_y_map.min()
+            map_y_max = corners_y_map.max()
 
-            # reprojected_maps = []
-            # for t in range(SEQ_LEN):
-            #     pred_map_t = prediction_maps[t:t+1]
-            #     pos_origin_map = pos_origin[0]
-            #     dx = pos_origin_map[0]
-            #     dy = pos_origin_map[1]
-            #     dtheta = pos_origin_map[2]
-            #     fin_map_t = reprojection_to_map(
-            #         pred_map_t,
-            #         x0,
-            #         y0,
-            #         th,
-            #         MAP_X_LIMIT,
-            #         MAP_Y_LIMIT,
-            #         map_x_min,
-            #         map_x_max,
-            #         map_y_min,
-            #         map_y_max,
-            #         IMG_SIZE,
-            #         IMG_SIZE,
-            #     )
-            #     reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))  # (H, W)
+            dx_tensor = torch.full((SEQ_LEN,), x0, device=pos_origin.device)
+            dy_tensor = torch.full((SEQ_LEN,), y0, device=pos_origin.device)
+            dtheta_tensor = torch.full((SEQ_LEN,), th, device=pos_origin.device)
 
-            # # (T, H, W) -> uint8 [0,255]
-            # reprojected_stack = torch.stack(reprojected_maps, dim=0)   # (T, H, W)
-            # # vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()  # (T, H, W)
-            # vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()   # (T, X, Y)
-            # vox_data = np.transpose(vox_data, (0, 2, 1))  # (T, Y, X)         
+            reprojected_stack = reprojection_to_map(
+                            prediction_maps,  # (SEQ_LEN, 1, H, W)
+                            dx_tensor,
+                            dy_tensor,
+                            dtheta_tensor,
+                            MAP_X_LIMIT,
+                            MAP_Y_LIMIT,
+                            map_x_min,
+                            map_x_max,
+                            map_y_min,
+                            map_y_max,
+                            IMG_SIZE,
+                            IMG_SIZE,
+                        )# (SEQ_LEN, 1, IMG_SIZE, IMG_SIZE)
 
-            # # VoxGrid.msg fields (vox_msgs/VoxGrid):
-            # # std_msgs/Header  header 
-            # # uint32 height
-            # # uint32 width
-            # # uint32 depth
-            # # float32 dl
-            # # float32 dt
-            # # geometry_msgs/Point origin
-            # # float32 theta
-            # # uint8[] data
+            # ---------------------------------------------------------------
+            # Create soft inflation decay filter
+            # ---------------------------------------------------------------
+            inflation_radius_cells = 2  # Radius in pixels
+            kernel_size = inflation_radius_cells * 2 + 1
+            inflation_decay = 0.8  # Decay factor
 
-            # vox_msg = VoxGrid()
-            # vox_msg.header.stamp = rospy.Time.now()
-            # vox_msg.header.frame_id = "map"
-            # vox_msg.height = IMG_SIZE
-            # vox_msg.width = IMG_SIZE
-            # vox_msg.depth = SEQ_LEN
-            # vox_msg.dl = (map_x_max - map_x_min) / IMG_SIZE
-            # vox_msg.dt = 0.1
-            # vox_msg.origin.x = map_x_min
-            # vox_msg.origin.y = map_y_min
-            # vox_msg.origin.z = 0.0
-            # vox_msg.theta = 0.0
-            # vox_msg.data = vox_data.flatten().tolist()
+            # Calculate distance matrix for 5x5 grid
+            y_indices, x_indices = torch.meshgrid(
+                torch.arange(kernel_size, device=pos_origin.device), 
+                torch.arange(kernel_size, device=pos_origin.device), 
+                indexing='ij'
+            )
+            dist_cells = torch.sqrt((x_indices - inflation_radius_cells)**2 + (y_indices - inflation_radius_cells)**2)
+            
+            # Linear decay formula
+            decay_kernel = 1.0 - inflation_decay * (dist_cells / inflation_radius_cells)
+            decay_kernel = torch.clamp(decay_kernel, min=0.0, max=1.0)
+            decay_filter = decay_kernel.view(1, 1, kernel_size, kernel_size)
 
-            # self.voxgrid_pub.publish(vox_msg)
+            # ---------------------------------------------------------------
+            # Apply GPU soft inflation and clamp costs
+            # ---------------------------------------------------------------
+            inflated_stack = F.conv2d(reprojected_stack, decay_filter, padding=inflation_radius_cells)
+            
+            # Keep the maximum cost between original and inflated grid
+            reprojected_stack = torch.max(reprojected_stack, inflated_stack)
+
+            # Clamp overlapping costs to legal range [0.0, 1.0]
+            reprojected_stack = torch.clamp(reprojected_stack, min=0.0, max=1.0)
+
+            reprojected_stack = torch.where(reprojected_stack > 0.1, reprojected_stack, torch.tensor(0.0, device=reprojected_stack.device))
+
+            reprojected_stack = reprojected_stack.squeeze(1) # (SEQ_LEN, H, W)
+            vox_data = (reprojected_stack * 255).to(torch.uint8).cpu().numpy()  
+            vox_data = np.transpose(vox_data, (0, 2, 1))    
+
+            # VoxGrid.msg fields (vox_msgs/VoxGrid):
+            # std_msgs/Header  header 
+            # uint32 height
+            # uint32 width
+            # uint32 depth
+            # float32 dl
+            # float32 dt
+            # geometry_msgs/Point origin
+            # float32 theta
+            # uint8[] data
+
+            vox_msg = VoxGrid()
+            vox_msg.header.stamp = rospy.Time.now()
+            vox_msg.header.frame_id = "odom"
+            vox_msg.height = IMG_SIZE
+            vox_msg.width = IMG_SIZE
+            vox_msg.depth = SEQ_LEN
+            vox_msg.dl = (map_x_max - map_x_min) / IMG_SIZE
+            vox_msg.dt = 0.1
+            vox_msg.origin.x = map_x_min
+            vox_msg.origin.y = map_y_min
+            vox_msg.origin.z = 0.0
+            vox_msg.theta = 0.0
+            vox_msg.data = vox_data.flatten().tolist()
+
+            self.voxgrid_pub.publish(vox_msg)
 
             #----------------------------------------------------------#
             ##################  Publish local map  #####################

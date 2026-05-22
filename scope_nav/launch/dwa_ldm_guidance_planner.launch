@@ -93,6 +93,9 @@
   <!-- Goal visualization -->
   <node pkg="scope_nav" name="scope_goal_visualize" type="goal_visualize.py" output="screen" />
 
+  <!-- VoxGrid Marker Visualization Node -->
+  <node pkg="scope_nav" type="vox_viz.py" name="vox_viz" output="screen"/>
+
   <!-- Rviz -->
   <include file="$(find scope_nav)/launch/view_navigation.launch" if="$(arg rviz)"/>
 

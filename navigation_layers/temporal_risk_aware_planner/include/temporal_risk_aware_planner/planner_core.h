@@ -58,6 +58,7 @@
 #include <temporal_risk_aware_planner/TemporalRiskAwarePlannerConfig.h>
 #include <vox_msgs/VoxGrid.h>
 #include <nav_msgs/Odometry.h>
+#include <visualization_msgs/Marker.h>
 
 namespace temporal_risk_aware_planner {
 
@@ -193,20 +194,22 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         bool isPoseNear(const geometry_msgs::PoseStamped& a,
                         const geometry_msgs::PoseStamped& b,
                         double tolerance) const;
+        bool isSubgoalSafe(const geometry_msgs::PoseStamped& pose);
         bool selectSubgoal(const geometry_msgs::PoseStamped& start,
                            geometry_msgs::PoseStamped& subgoal);
+        bool reselectSubgoal(const std::vector<geometry_msgs::PoseStamped>& path, size_t current_idx, geometry_msgs::PoseStamped& subgoal);
         size_t findNearestIdx(
             const geometry_msgs::PoseStamped& start,
             const std::vector<geometry_msgs::PoseStamped>& path,
             size_t search_begin) const;     
+        void publishSubgoalMarker(const geometry_msgs::PoseStamped& subgoal);
+        void publishNearestMarker(const geometry_msgs::PoseStamped& nearest);
         void voxGridCallback(const vox_msgs::VoxGrid::ConstPtr& msg);
         void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
-        void inflateVoxGrid();
-
         bool getTemporalRiskAt(double wx, double wy, double time_from_now, double& risk) const;
         void pruneSubpath(const geometry_msgs::PoseStamped& start,
                           std::vector<geometry_msgs::PoseStamped>& pruned_subpath) const;
-        bool evaluateTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const;
+        bool isTemporalRiskAcceptable(const std::vector<geometry_msgs::PoseStamped>& path) const;
 
         double planner_window_x_, planner_window_y_, default_tolerance_;
         boost::mutex mutex_;
@@ -215,14 +218,12 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         ros::Subscriber voxgrid_sub_;
         vox_msgs::VoxGrid latest_voxgrid_;
         bool has_voxgrid_;
-        std::vector<unsigned char> inflated_voxgrid_data_;
 
         ros::Subscriber odom_sub_;
         double current_robot_speed_;
 
-        double inflation_radius_;
-        double inflation_decay_;
-        unsigned char obstacle_threshold_;
+        ros::Publisher subgoal_marker_pub_;
+        ros::Publisher nearest_marker_pub_;
 
         PotentialCalculator* p_calc_;
         Expander* planner_;
