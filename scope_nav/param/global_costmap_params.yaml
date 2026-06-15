@@ -13,5 +13,5 @@ global_costmap:
    plugins:
      - {name: obstacle_layer,          type: "costmap_2d::VoxelLayer"}
      - {name: scope_prediction_layer,  type: "social_navigation_layers::ProbabilityLayer"}
-     - {name: inflation_layer,         type: "costmap_2d::InflationLayer"}
+     #- {name: inflation_layer,         type: "costmap_2d::InflationLayer"}
 

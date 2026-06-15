@@ -138,6 +138,16 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
          * @param plan The plan... filled by the planner
          * @return True if a valid plan was found, false otherwise
          */
+
+        bool getPlanFromPotentialThreadSafe(
+            Traceback* local_path_maker,
+            float* local_potential_array,
+            double start_x,
+            double start_y,
+            double goal_x,
+            double goal_y,
+            const geometry_msgs::PoseStamped& goal,
+            std::vector<geometry_msgs::PoseStamped>& plan);
         bool getPlanFromPotential(double start_x, double start_y, double end_x, double end_y,
                                   const geometry_msgs::PoseStamped& goal,
                                   std::vector<geometry_msgs::PoseStamped>& plan);
@@ -215,7 +225,8 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
             const std::vector<geometry_msgs::PoseStamped>& local_goal_line,
             const std::vector<geometry_msgs::PoseStamped>& endpoints,
             const std::vector<PathCandidate>& candidates,
-            const std::vector<geometry_msgs::PoseStamped>& selected_path);
+            const std::vector<geometry_msgs::PoseStamped>& selected_path,
+            int selected_homotopy_id = -1);
         void voxGridCallback(const vox_msgs::VoxGrid::ConstPtr& msg);
         void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
         bool getTemporalRiskAt(double wx, double wy, double time_from_now, double& risk) const;
@@ -227,6 +238,9 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         bool isSameHomotopy(const std::vector<geometry_msgs::PoseStamped>& patha, 
                               const std::vector<geometry_msgs::PoseStamped>& pathb,
                               const geometry_msgs::PoseStamped& start);
+        bool findNearestPose(const geometry_msgs::PoseStamped& query,
+                                          const std::vector<geometry_msgs::PoseStamped>& poses,
+                                          geometry_msgs::PoseStamped& nearest_pose) const ;
         bool hasObstacleInside(const std::vector<geometry_msgs::PoseStamped>& patha,
                                const std::vector<geometry_msgs::PoseStamped>& pathb,
                                const geometry_msgs::PoseStamped& start);
@@ -235,7 +249,7 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
                                                    bool is_near, 
                                                    std::vector<geometry_msgs::PoseStamped>& endpoints,
                                                    std::vector<geometry_msgs::PoseStamped>& local_goal_line);
-        std::vector<geometry_msgs::PoseStamped> evalTemporalRisk(std::vector<PathCandidate>& candidates);  
+        double evalTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const;
         std::vector<std::pair<int, int>> Bresenham(const std::pair<int, int>& p1, const std::pair<int, int>& p2);
 
         double planner_window_x_, planner_window_y_, default_tolerance_;

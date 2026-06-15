@@ -288,11 +288,11 @@ class ScopeCostmap:
             # ---------------------------------------------------------------
             # Create soft inflation decay filter
             # ---------------------------------------------------------------
-            inflation_radius_cells = 2  # Radius in pixels
+            inflation_radius_cells = 3  # Radius in pixels
             kernel_size = inflation_radius_cells * 2 + 1
             inflation_decay = 0.8  # Decay factor
 
-            # Calculate distance matrix for 5x5 grid
+            # Calculate distance matrix for 7x7 grid
             y_indices, x_indices = torch.meshgrid(
                 torch.arange(kernel_size, device=pos_origin.device), 
                 torch.arange(kernel_size, device=pos_origin.device), 
