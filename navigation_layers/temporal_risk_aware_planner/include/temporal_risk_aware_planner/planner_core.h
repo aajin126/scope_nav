@@ -60,6 +60,7 @@
 #include <nav_msgs/Odometry.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
+#include <omp.h>
 
 namespace temporal_risk_aware_planner {
 
@@ -201,10 +202,21 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
             int homotopy_id = -1;
             double temporal_risk_score = 0.0;
         };
+        struct PlannerWorkspace {
+            int nx = 0;
+            int ny = 0;
+            int ns = 0;
 
+            std::vector<unsigned char> costmap_copy;
+            std::vector<float> potential_array;
+
+            std::unique_ptr<PotentialCalculator> p_calc;
+            std::unique_ptr<Expander> planner;
+            std::unique_ptr<Traceback> path_maker;
+        };
         double distance2D(const geometry_msgs::PoseStamped& a,
                           const geometry_msgs::PoseStamped& b) const;
-        bool buildPlan(const geometry_msgs::PoseStamped& start,
+        bool buildPlan(int tid, const geometry_msgs::PoseStamped& start,
                        const geometry_msgs::PoseStamped& goal,
                        std::vector<geometry_msgs::PoseStamped>& plan);
         bool isGoalChanged(const geometry_msgs::PoseStamped& goal) const;
@@ -254,7 +266,8 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
                                                    std::vector<geometry_msgs::PoseStamped>& local_goal_line);
         double evalTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const;
         std::vector<std::pair<int, int>> Bresenham(const std::pair<int, int>& p1, const std::pair<int, int>& p2);
-
+        TemporalRiskAwarePlanner::PlannerWorkspace& getWorkspace(int tid, int nx, int ny);
+        std::vector<PlannerWorkspace> workspaces_;
         double planner_window_x_, planner_window_y_, default_tolerance_;
         boost::mutex mutex_;
         ros::ServiceServer make_plan_srv_;

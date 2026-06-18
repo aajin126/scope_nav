@@ -306,7 +306,7 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
             {
                 std::vector<geometry_msgs::PoseStamped> tail_plan;
 
-                if (buildPlan(previous_subpath_.back(), nearest_endpoint, tail_plan)) 
+                if (buildPlan(0, previous_subpath_.back(), nearest_endpoint, tail_plan)) 
                 {
                     plan = previous_subpath_;
 
@@ -419,29 +419,55 @@ std::vector<std::vector<geometry_msgs::PoseStamped>> TemporalRiskAwarePlanner::f
                                                                        const geometry_msgs::PoseStamped& start,
                                                                        const std::vector<geometry_msgs::PoseStamped>& endpoints)
 {
-
-    std::vector<std::vector<geometry_msgs::PoseStamped>> valid_paths;
     std::vector<std::vector<geometry_msgs::PoseStamped>> raw_paths(endpoints.size());
 
-    //#pragma omp parallel for
-    for (size_t i = 0; i < endpoints.size(); ++i) {
+    if (endpoints.empty()) {
+        ROS_WARN("findMultiplePaths: endpoints is empty.");
+        return {};
+    }
+
+    const int nx = static_cast<int>(costmap_->getSizeInCellsX());
+    const int ny = static_cast<int>(costmap_->getSizeInCellsY());
+
+    // int num_threads = omp_get_max_threads();
+    // num_threads = std::min(num_threads, static_cast<int>(endpoints.size()));
+    // num_threads = std::max(1, num_threads);
+
+    // if (static_cast<int>(workspaces_.size()) < num_threads) {
+    //     workspaces_.resize(num_threads);
+    // }
+
+    // for (int tid = 0; tid < num_threads; ++tid) {
+    //     getWorkspace(tid, nx, ny);
+    // }
+    if (workspaces_.empty()) {
+        workspaces_.resize(1);
+    }
+    getWorkspace(0, nx, ny);
+    //#pragma omp parallel for num_threads(num_threads) schedule(dynamic)
+    for (int i = 0; i < static_cast<int>(endpoints.size()); ++i) {
+        // const int tid = omp_get_thread_num();
+
         std::vector<geometry_msgs::PoseStamped> single_plan;
 
-        if (buildPlan(start, endpoints[i], single_plan)) {
-            raw_paths[i] = single_plan;
+        if (buildPlan(0, start, endpoints[i], single_plan)) {
+            raw_paths[i] = std::move(single_plan);
         }
     }
 
+    std::vector<std::vector<geometry_msgs::PoseStamped>> valid_paths;
     valid_paths.reserve(raw_paths.size());
 
-    for (const auto& path : raw_paths) {
+    for (auto& path : raw_paths) {
         if (!path.empty()) {
-            valid_paths.push_back(path);
+            valid_paths.push_back(std::move(path));
         }
     }
 
-    return valid_paths;
+    ROS_INFO("findMultiplePaths: endpoints=%zu valid_paths=%zu",
+             endpoints.size(), valid_paths.size());
 
+    return valid_paths;
 }
 
 std::vector<TemporalRiskAwarePlanner::PathCandidate>TemporalRiskAwarePlanner::groupPathsByHomotopy(
@@ -1276,33 +1302,244 @@ std::vector<std::pair<int, int>> TemporalRiskAwarePlanner::Bresenham(const std::
 // }
 
 
-bool TemporalRiskAwarePlanner::buildPlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,
-        std::vector<geometry_msgs::PoseStamped>& plan) {
+// bool TemporalRiskAwarePlanner::buildPlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,
+//         std::vector<geometry_msgs::PoseStamped>& plan) {
 
+//     if (!initialized_) {
+//         ROS_ERROR(
+//                 "This planner has not been initialized yet, but it is being used, please call initialize() before use");
+//         return false;
+//     }
+
+//     //clear the plan, just in case
+//     plan.clear();
+
+//     ros::NodeHandle n;
+//     std::string global_frame = frame_id_;
+
+//     //until tf can handle transforming things that are way in the past... we'll require the goal to be in our global frame
+//     if (goal.header.frame_id != global_frame) {
+//         ROS_ERROR(
+//                 "The goal pose passed to this planner must be in the %s frame.  It is instead in the %s frame.", global_frame.c_str(), goal.header.frame_id.c_str());
+
+//         return false;
+//     }
+
+//     if (start.header.frame_id != global_frame) {
+//         ROS_ERROR(
+//                 "The start pose passed to this planner must be in the %s frame.  It is instead in the %s frame.", global_frame.c_str(), start.header.frame_id.c_str());
+
+//         return false;
+//     }
+
+//     double wx = start.pose.position.x;
+//     double wy = start.pose.position.y;
+
+//     unsigned int start_x_i, start_y_i, goal_x_i, goal_y_i;
+//     double start_x, start_y, goal_x, goal_y;
+
+//     if (!costmap_->worldToMap(wx, wy, start_x_i, start_y_i)) {
+//         ROS_WARN_THROTTLE(1.0,
+//                 "The robot's start position is off the global costmap. Planning will always fail, are you sure the robot has been properly localized?");
+
+//         return false;
+//     }
+//     if(old_navfn_behavior_){
+//         start_x = start_x_i;
+//         start_y = start_y_i;
+//     }else{
+//         worldToMap(wx, wy, start_x, start_y);
+//     }
+
+//     wx = goal.pose.position.x;
+//     wy = goal.pose.position.y;
+
+//     if (!costmap_->worldToMap(wx, wy, goal_x_i, goal_y_i)) {
+//         ROS_WARN_THROTTLE(1.0,
+//                 "The goal sent to the global planner is off the global costmap. Planning will always fail to this goal.");
+
+//         return false;
+//     }
+//     if(old_navfn_behavior_){
+//         goal_x = goal_x_i;
+//         goal_y = goal_y_i;
+//     }else{
+//         worldToMap(wx, wy, goal_x, goal_y);
+//     }
+
+//     int nx = costmap_->getSizeInCellsX(), ny = costmap_->getSizeInCellsY();
+//     const int ns = nx * ny;
+
+//     if (nx <= 0 || ny <= 0 || ns <= 0) {
+//         return false;
+//     }
+
+//     const unsigned char* original_costmap = costmap_->getCharMap();
+
+//     std::vector<unsigned char> costmap_copy(
+//         original_costmap,
+//         original_costmap + ns);
+
+//     costmap_copy[start_y_i * nx + start_x_i] = costmap_2d::FREE_SPACE;
+
+//     if (outline_map_) {
+//         outlineMap(costmap_copy.data(), nx, ny, costmap_2d::LETHAL_OBSTACLE);
+//     }
+
+//     std::unique_ptr<PotentialCalculator> local_p_calc;
+
+//     if (dynamic_cast<QuadraticCalculator*>(p_calc_) != NULL) {
+//         local_p_calc.reset(new QuadraticCalculator(nx, ny));
+//     } else {
+//         local_p_calc.reset(new PotentialCalculator(nx, ny));
+//     }
+
+//     std::unique_ptr<Expander> local_planner;
+
+//     if (dynamic_cast<AStarExpansion*>(planner_) != NULL) {
+//         local_planner.reset(new AStarExpansion(local_p_calc.get(), nx, ny));
+//     } else {
+//         DijkstraExpansion* local_dijkstra =
+//             new DijkstraExpansion(local_p_calc.get(), nx, ny);
+
+//         if (!old_navfn_behavior_) {
+//             local_dijkstra->setPreciseStart(true);
+//         }
+
+//         local_planner.reset(local_dijkstra);
+//     }
+
+//     local_planner->setHasUnknown(allow_unknown_);
+
+//     std::unique_ptr<Traceback> local_path_maker;
+
+//     if (dynamic_cast<GridPath*>(path_maker_) != NULL) {
+//         local_path_maker.reset(new GridPath(local_p_calc.get()));
+//     } else {
+//         local_path_maker.reset(new GradientPath(local_p_calc.get()));
+//     }
+
+//     local_p_calc->setSize(nx, ny);
+//     local_planner->setSize(nx, ny);
+//     local_path_maker->setSize(nx, ny);
+
+//     std::vector<float> local_potential_array(ns, POT_HIGH);
+
+//     const bool found_legal =
+//         local_planner->calculatePotentials(
+//             costmap_copy.data(),
+//             start_x,
+//             start_y,
+//             goal_x,
+//             goal_y,
+//             ns * 2,
+//             local_potential_array.data());
+
+//     if (!old_navfn_behavior_) {
+//         local_planner->clearEndpoint(
+//             costmap_copy.data(),
+//             local_potential_array.data(),
+//             goal_x_i,
+//             goal_y_i,
+//             2);
+//     }
+
+//     if (!found_legal) {
+//         return false;
+//     }
+
+//     if (!getPlanFromPotentialThreadSafe(
+//             local_path_maker.get(),
+//             local_potential_array.data(),
+//             start_x,
+//             start_y,
+//             goal_x,
+//             goal_y,
+//             goal,
+//             plan)) {
+//         return false;
+//     }
+
+//     geometry_msgs::PoseStamped goal_copy = goal;
+//     goal_copy.header.stamp = ros::Time::now();
+//     plan.push_back(goal_copy);
+
+//     return !plan.empty();
+// }
+
+TemporalRiskAwarePlanner::PlannerWorkspace& TemporalRiskAwarePlanner::getWorkspace(int tid, int nx, int ny)
+{
+    const int ns = nx * ny;
+
+    if (tid < 0 || tid >= static_cast<int>(workspaces_.size())) {
+        ROS_ERROR("getWorkspace: invalid tid=%d workspaces.size=%zu",
+                  tid, workspaces_.size());
+        tid = 0;
+    }
+
+    PlannerWorkspace& ws = workspaces_[tid];
+
+    if (ws.nx != nx || ws.ny != ny || ws.ns != ns ||
+        !ws.p_calc || !ws.planner || !ws.path_maker) {
+
+        ws.nx = nx;
+        ws.ny = ny;
+        ws.ns = ns;
+
+        ws.costmap_copy.resize(ns);
+        ws.potential_array.resize(ns);
+
+        if (dynamic_cast<QuadraticCalculator*>(p_calc_) != NULL) {
+            ws.p_calc.reset(new QuadraticCalculator(nx, ny));
+        } else {
+            ws.p_calc.reset(new PotentialCalculator(nx, ny));
+        }
+
+        if (dynamic_cast<AStarExpansion*>(planner_) != NULL) {
+            ws.planner.reset(new AStarExpansion(ws.p_calc.get(), nx, ny));
+        } else {
+            DijkstraExpansion* local_dijkstra =
+                new DijkstraExpansion(ws.p_calc.get(), nx, ny);
+
+            if (!old_navfn_behavior_) {
+                local_dijkstra->setPreciseStart(true);
+            }
+
+            ws.planner.reset(local_dijkstra);
+        }
+
+        if (dynamic_cast<GridPath*>(path_maker_) != NULL) {
+            ws.path_maker.reset(new GridPath(ws.p_calc.get()));
+        } else {
+            ws.path_maker.reset(new GradientPath(ws.p_calc.get()));
+        }
+
+        ws.p_calc->setSize(nx, ny);
+        ws.planner->setSize(nx, ny);
+        ws.path_maker->setSize(nx, ny);
+        ws.planner->setHasUnknown(allow_unknown_);
+    }
+
+    return ws;
+}
+
+bool TemporalRiskAwarePlanner::buildPlan(
+    int tid,
+    const geometry_msgs::PoseStamped& start,
+    const geometry_msgs::PoseStamped& goal,
+    std::vector<geometry_msgs::PoseStamped>& plan)
+{
     if (!initialized_) {
-        ROS_ERROR(
-                "This planner has not been initialized yet, but it is being used, please call initialize() before use");
+        ROS_ERROR("This planner has not been initialized yet.");
         return false;
     }
 
-    //clear the plan, just in case
     plan.clear();
 
-    ros::NodeHandle n;
-    std::string global_frame = frame_id_;
+    const std::string global_frame = frame_id_;
 
-    //until tf can handle transforming things that are way in the past... we'll require the goal to be in our global frame
-    if (goal.header.frame_id != global_frame) {
-        ROS_ERROR(
-                "The goal pose passed to this planner must be in the %s frame.  It is instead in the %s frame.", global_frame.c_str(), goal.header.frame_id.c_str());
-
-        return false;
-    }
-
-    if (start.header.frame_id != global_frame) {
-        ROS_ERROR(
-                "The start pose passed to this planner must be in the %s frame.  It is instead in the %s frame.", global_frame.c_str(), start.header.frame_id.c_str());
-
+    if (goal.header.frame_id != global_frame ||
+        start.header.frame_id != global_frame) {
         return false;
     }
 
@@ -1313,15 +1550,13 @@ bool TemporalRiskAwarePlanner::buildPlan(const geometry_msgs::PoseStamped& start
     double start_x, start_y, goal_x, goal_y;
 
     if (!costmap_->worldToMap(wx, wy, start_x_i, start_y_i)) {
-        ROS_WARN_THROTTLE(1.0,
-                "The robot's start position is off the global costmap. Planning will always fail, are you sure the robot has been properly localized?");
-
         return false;
     }
-    if(old_navfn_behavior_){
+
+    if (old_navfn_behavior_) {
         start_x = start_x_i;
         start_y = start_y_i;
-    }else{
+    } else {
         worldToMap(wx, wy, start_x, start_y);
     }
 
@@ -1329,90 +1564,58 @@ bool TemporalRiskAwarePlanner::buildPlan(const geometry_msgs::PoseStamped& start
     wy = goal.pose.position.y;
 
     if (!costmap_->worldToMap(wx, wy, goal_x_i, goal_y_i)) {
-        ROS_WARN_THROTTLE(1.0,
-                "The goal sent to the global planner is off the global costmap. Planning will always fail to this goal.");
-
         return false;
     }
-    if(old_navfn_behavior_){
+
+    if (old_navfn_behavior_) {
         goal_x = goal_x_i;
         goal_y = goal_y_i;
-    }else{
+    } else {
         worldToMap(wx, wy, goal_x, goal_y);
     }
 
-    int nx = costmap_->getSizeInCellsX(), ny = costmap_->getSizeInCellsY();
+    const int nx = costmap_->getSizeInCellsX();
+    const int ny = costmap_->getSizeInCellsY();
     const int ns = nx * ny;
 
     if (nx <= 0 || ny <= 0 || ns <= 0) {
         return false;
     }
 
+    PlannerWorkspace& ws = getWorkspace(tid, nx, ny);
+
     const unsigned char* original_costmap = costmap_->getCharMap();
 
-    std::vector<unsigned char> costmap_copy(
+    std::copy(
         original_costmap,
-        original_costmap + ns);
+        original_costmap + ns,
+        ws.costmap_copy.begin());
 
-    costmap_copy[start_y_i * nx + start_x_i] = costmap_2d::FREE_SPACE;
+    ws.costmap_copy[start_y_i * nx + start_x_i] = costmap_2d::FREE_SPACE;
 
     if (outline_map_) {
-        outlineMap(costmap_copy.data(), nx, ny, costmap_2d::LETHAL_OBSTACLE);
+        outlineMap(ws.costmap_copy.data(), nx, ny, costmap_2d::LETHAL_OBSTACLE);
     }
 
-    std::unique_ptr<PotentialCalculator> local_p_calc;
-
-    if (dynamic_cast<QuadraticCalculator*>(p_calc_) != NULL) {
-        local_p_calc.reset(new QuadraticCalculator(nx, ny));
-    } else {
-        local_p_calc.reset(new PotentialCalculator(nx, ny));
-    }
-
-    std::unique_ptr<Expander> local_planner;
-
-    if (dynamic_cast<AStarExpansion*>(planner_) != NULL) {
-        local_planner.reset(new AStarExpansion(local_p_calc.get(), nx, ny));
-    } else {
-        DijkstraExpansion* local_dijkstra =
-            new DijkstraExpansion(local_p_calc.get(), nx, ny);
-
-        if (!old_navfn_behavior_) {
-            local_dijkstra->setPreciseStart(true);
-        }
-
-        local_planner.reset(local_dijkstra);
-    }
-
-    local_planner->setHasUnknown(allow_unknown_);
-
-    std::unique_ptr<Traceback> local_path_maker;
-
-    if (dynamic_cast<GridPath*>(path_maker_) != NULL) {
-        local_path_maker.reset(new GridPath(local_p_calc.get()));
-    } else {
-        local_path_maker.reset(new GradientPath(local_p_calc.get()));
-    }
-
-    local_p_calc->setSize(nx, ny);
-    local_planner->setSize(nx, ny);
-    local_path_maker->setSize(nx, ny);
-
-    std::vector<float> local_potential_array(ns, POT_HIGH);
+    std::fill(
+        ws.potential_array.begin(),
+        ws.potential_array.end(),
+        POT_HIGH);
 
     const bool found_legal =
-        local_planner->calculatePotentials(
-            costmap_copy.data(),
+        ws.planner->calculatePotentials(
+            ws.costmap_copy.data(),
             start_x,
             start_y,
             goal_x,
             goal_y,
             ns * 2,
-            local_potential_array.data());
+            ws.potential_array.data());
 
     if (!old_navfn_behavior_) {
-        local_planner->clearEndpoint(
-            costmap_copy.data(),
-            local_potential_array.data(),
+        ws.planner->clearEndpoint(
+            ws.costmap_copy.data(),
+            ws.potential_array.data(),
             goal_x_i,
             goal_y_i,
             2);
@@ -1423,8 +1626,8 @@ bool TemporalRiskAwarePlanner::buildPlan(const geometry_msgs::PoseStamped& start
     }
 
     if (!getPlanFromPotentialThreadSafe(
-            local_path_maker.get(),
-            local_potential_array.data(),
+            ws.path_maker.get(),
+            ws.potential_array.data(),
             start_x,
             start_y,
             goal_x,
@@ -1440,7 +1643,6 @@ bool TemporalRiskAwarePlanner::buildPlan(const geometry_msgs::PoseStamped& start
 
     return !plan.empty();
 }
-
 
 bool TemporalRiskAwarePlanner::isGoalChanged(const geometry_msgs::PoseStamped& goal) const 
 {
