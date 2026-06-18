@@ -217,7 +217,7 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         };
         double distance2D(const geometry_msgs::PoseStamped& a,
                           const geometry_msgs::PoseStamped& b) const;
-        bool buildPlan(const geometry_msgs::PoseStamped& start,
+        bool buildPlan(int tid, const geometry_msgs::PoseStamped& start,
                        const geometry_msgs::PoseStamped& goal,
                        std::vector<geometry_msgs::PoseStamped>& plan);
         bool isGoalChanged(const geometry_msgs::PoseStamped& goal) const;
@@ -267,9 +267,9 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
                                                    std::vector<geometry_msgs::PoseStamped>& local_goal_line);
         double evalTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const;
         std::vector<std::pair<int, int>> Bresenham(const std::pair<int, int>& p1, const std::pair<int, int>& p2);
-        PlannerWorkspace&TemporalRiskAwarePlanner::getWorkspace(int tid, int nx, int ny);
+        TemporalRiskAwarePlanner::PlannerWorkspace& getWorkspace(int tid, int nx, int ny);
 
-        std::vector<PlannerWorkspace> planner_workspaces_;
+        std::vector<PlannerWorkspace> workspaces_;
 
         double planner_window_x_, planner_window_y_, default_tolerance_;
         boost::mutex mutex_;
