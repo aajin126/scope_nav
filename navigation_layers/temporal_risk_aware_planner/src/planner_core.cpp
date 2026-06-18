@@ -48,6 +48,7 @@
 
 #include <cfloat>
 #include <cmath>
+#include <cstdio>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
@@ -266,7 +267,6 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
 
     if (!has_global_goal_ || isGoalChanged(goal)) 
     {
-      
         global_goal_ = goal;
         last_global_goal_ = goal;
         has_global_goal_ = true;
@@ -281,7 +281,9 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
 
     double create_local_goal_line_time_ms = 0.0;
     double lazy_replan_time_ms = 0.0;
-    double find_homotopy_paths_time_ms = 0.0;
+    double find_multiple_paths_time_ms = 0.0;
+    double group_paths_by_homotopy_time_ms = 0.0;
+    double compute_temporal_risk_time_ms = 0.0;
     double select_same_homotopy_time_ms = 0.0;
     double select_lowest_risk_time_ms = 0.0;
 
@@ -290,12 +292,13 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
     create_local_goal_line_time_ms = elapsedMs(timer);
 
     timer = ros::WallTime::now();
+
     // 2. Lazy replanning : If the current subgoal is still safe and reachable, keep using it
     if (!previous_subpath_.empty())
     {
         double prev_risk = evalTemporalRisk(previous_subpath_);
 
-        if (prev_risk < 0.3)
+        if (prev_risk < 3.0)
         {
             geometry_msgs::PoseStamped nearest_endpoint;
 
@@ -323,126 +326,257 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
     }
     lazy_replan_time_ms = elapsedMs(timer);
 
-    // 3. Generate homotopy-distinct path candidates
+    // 3. Generate multiple path candidates
 
     timer = ros::WallTime::now();
-    std::vector<PathCandidate> candidates = findHomotopyPaths(start, endpoints);
-    find_homotopy_paths_time_ms = elapsedMs(timer);
+    std::vector<std::vector<geometry_msgs::PoseStamped>> valid_paths = findMultiplePaths(start, endpoints);
+    find_multiple_paths_time_ms = elapsedMs(timer);
 
-    if (candidates.empty()) {
+    if (valid_paths.empty()) {
         ROS_ERROR("No valid paths found through any endpoints.");
-        publishPlanningDebugMarkers(local_goal_line, endpoints, candidates, std::vector<geometry_msgs::PoseStamped>());
-        ROS_INFO("makePlan timing [createLocalGoalLine=%.2fms lazyReplan=%.2fms findHomotopyPaths=%.2fms]", create_local_goal_line_time_ms, lazy_replan_time_ms, find_homotopy_paths_time_ms);
+        publishPlanningDebugMarkers(local_goal_line, endpoints, std::vector<PathCandidate>(), std::vector<geometry_msgs::PoseStamped>());
+        ROS_INFO("makePlan timing [createLocalGoalLine=%.2fms lazyReplan=%.2fms findMultiplePaths=%.2fms]", create_local_goal_line_time_ms, lazy_replan_time_ms, find_multiple_paths_time_ms);
 
         return false;
     }
 
-    // 4. Select the same homotopy path if it exists, otherwise select the one with the lowest temporal risk score
+    // 4.  Group paths by homotopy class
+    int previous_homotopy_id = -1;
 
+    timer = ros::WallTime::now();
+    std::vector<PathCandidate> candidates = groupPathsByHomotopy(valid_paths, start, previous_subpath_, previous_homotopy_id);
+    group_paths_by_homotopy_time_ms = elapsedMs(timer);
+    
     bool selected_plan = false;
     int selected_homotopy_id = -1;
 
+    // 5. Compute temporal risk score for every candidate and select the one with same homotopy with previous subpath if it has acceptable risk, otherwise select the one with the lowest temporal risk score
+
     timer = ros::WallTime::now();
-    if (!previous_subpath_.empty()) 
+
+    for (int cand_idx = 0; cand_idx < static_cast<int>(candidates.size()); ++cand_idx) {
+        candidates[cand_idx].temporal_risk_score = evalTemporalRisk(candidates[cand_idx].path);
+    }
+    std::sort(candidates.begin(), candidates.end(),
+        [](const PathCandidate& a, const PathCandidate& b) {
+            return a.temporal_risk_score < b.temporal_risk_score;
+        });
+
+    compute_temporal_risk_time_ms = elapsedMs(timer);
+
+    // Select path
+    timer = ros::WallTime::now();
+
+    int selected_idx = -1;
+
+    if (previous_homotopy_id >= 0) 
     {
-        for (const auto& cand : candidates) 
+        for (int i = 0; i < static_cast<int>(candidates.size()); ++i) 
         {
-            if (isSameHomotopy(previous_subpath_, cand.path, start)) 
+            if (candidates[i].homotopy_id == previous_homotopy_id) 
             {
-                ROS_INFO("Same homotopy path found. Reusing current homotopy class.");
-                plan = cand.path;
-                selected_plan = true;
-                selected_homotopy_id = cand.homotopy_id;
-                break;
+                if (candidates[i].temporal_risk_score < 3.0)
+                {
+                    selected_idx = i;
+                    ROS_INFO("Acceptable same homotopy path found. Reusing current homotopy class.");
+                    break;
+                }
+
             }
-        }
+       }
+
     }
+
+    if (selected_idx < 0) 
+    {
+        selected_idx = 0;
+        ROS_INFO("No acceptable same homotopy path found. Selecting the lowest temporal-risk path.");
+    }
+
+    plan = candidates[selected_idx].path;
+    selected_plan = true;
+    selected_homotopy_id = candidates[selected_idx].homotopy_id;
+
     select_same_homotopy_time_ms = elapsedMs(timer);
-
-    if (!selected_plan) {
-        ROS_INFO("No same homotopy path found. Selecting the lowest temporal-risk path.");
-
-        timer = ros::WallTime::now();
-        #pragma omp parallel for
-        for (int cand_idx = 0; cand_idx < static_cast<int>(candidates.size()); ++cand_idx) {
-            candidates[cand_idx].temporal_risk_score =
-                evalTemporalRisk(candidates[cand_idx].path);
-        }
-
-        const auto best_candidate = std::min_element(
-            candidates.begin(),
-            candidates.end(),
-            [](const PathCandidate& a, const PathCandidate& b) {
-                return a.temporal_risk_score < b.temporal_risk_score;
-            });
-
-        plan = best_candidate->path;
-        selected_homotopy_id = best_candidate->homotopy_id;
-        select_lowest_risk_time_ms = elapsedMs(timer);
-    }
 
     previous_subpath_ = plan;
     publishPlan(plan);
     publishPlanningDebugMarkers(local_goal_line, endpoints, candidates, plan, selected_homotopy_id);
 
-    ROS_INFO("makePlan timing [createLocalGoalLine=%.2fms lazyReplan=%.2fms findHomotopyPaths=%.2fms selectSameHomotopy=%.2fms selectLowestRisk=%.2fms]",
+    ROS_INFO("[createLocalGoalLine=%.2fms lazyReplan=%.2fms findMultiplePaths=%.2fms groupPathsByHomotopy=%.2fms computeTemporalRisk=%.2fms selectSameHomotopy=%.2fms]",
              create_local_goal_line_time_ms,
              lazy_replan_time_ms,
-             find_homotopy_paths_time_ms,
-             select_same_homotopy_time_ms,
-             select_lowest_risk_time_ms);
+             find_multiple_paths_time_ms,
+             group_paths_by_homotopy_time_ms,
+             compute_temporal_risk_time_ms,
+             select_same_homotopy_time_ms);
 
     return !plan.empty();
 
 }
 
-std::vector<TemporalRiskAwarePlanner::PathCandidate> TemporalRiskAwarePlanner::findHomotopyPaths(
+std::vector<std::vector<geometry_msgs::PoseStamped>> TemporalRiskAwarePlanner::findMultiplePaths(
                                                                        const geometry_msgs::PoseStamped& start,
                                                                        const std::vector<geometry_msgs::PoseStamped>& endpoints)
 {
 
-    std::vector<PathCandidate> all_paths;
-    std::vector<PathCandidate> homotopy_reps;
+    std::vector<std::vector<geometry_msgs::PoseStamped>> valid_paths;
     std::vector<std::vector<geometry_msgs::PoseStamped>> raw_paths(endpoints.size());
-    
-    #pragma omp parallel for num_threads(4)
+
+    //#pragma omp parallel for
     for (size_t i = 0; i < endpoints.size(); ++i) {
         std::vector<geometry_msgs::PoseStamped> single_plan;
+
         if (buildPlan(start, endpoints[i], single_plan)) {
             raw_paths[i] = single_plan;
         }
     }
 
-    int next_homotopy_id = 0;
+    valid_paths.reserve(raw_paths.size());
+
     for (const auto& path : raw_paths) {
-        if (path.empty()) continue;
-
-        int homotopy_id = -1;
-        for (const auto& rep : homotopy_reps) {
-            if (isSameHomotopy(path, rep.path, start)) {
-                homotopy_id = rep.homotopy_id;
-                break;
-            }
+        if (!path.empty()) {
+            valid_paths.push_back(path);
         }
-
-        if (homotopy_id < 0) {
-            homotopy_id = next_homotopy_id++;
-            PathCandidate rep;
-            rep.path = path;
-            rep.homotopy_id = homotopy_id;
-            rep.temporal_risk_score = 0.0;
-            homotopy_reps.push_back(rep);
-        }
-
-        PathCandidate cand;
-        cand.path = path;
-        cand.homotopy_id = homotopy_id;
-        cand.temporal_risk_score = 0.0;
-        all_paths.push_back(cand);
     }
 
-    return all_paths;
+    return valid_paths;
 
+}
+
+std::vector<TemporalRiskAwarePlanner::PathCandidate>TemporalRiskAwarePlanner::groupPathsByHomotopy(
+                            const std::vector<std::vector<geometry_msgs::PoseStamped>>& valid_paths,
+                            const geometry_msgs::PoseStamped& start,
+                            const std::vector<geometry_msgs::PoseStamped>& previous_path,
+                            int& previous_homotopy_id)
+{
+    std::vector<PathCandidate> cand_paths;
+    previous_homotopy_id = -1;
+
+    const bool has_previous = !previous_path.empty();
+
+    std::vector<std::vector<geometry_msgs::PoseStamped>> grouped_paths;
+    grouped_paths.reserve(valid_paths.size() + (has_previous ? 1 : 0));
+
+    if (has_previous) {
+        grouped_paths.push_back(previous_path);
+    }
+
+    for (const auto& path : valid_paths) {
+        if (!path.empty()) {
+            grouped_paths.push_back(path);
+        }
+    }
+
+    const int n = static_cast<int>(grouped_paths.size());
+    if (n == 0 || (has_previous && n == 1)) {
+        return cand_paths;
+    }
+
+    const int candidate_offset = has_previous ? 1 : 0;
+
+    std::vector<uint8_t> same(
+        static_cast<size_t>(n) * static_cast<size_t>(n),
+        0);
+
+    std::vector<std::pair<int, int>> pairs;
+    pairs.reserve(static_cast<size_t>(n) * static_cast<size_t>(n - 1) / 2);
+
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            pairs.push_back(std::make_pair(i, j));
+        }
+    }
+
+    //#pragma omp parallel for schedule(dynamic)
+    for (int k = 0; k < static_cast<int>(pairs.size()); ++k) {
+        const int i = pairs[k].first;
+        const int j = pairs[k].second;
+
+        if (isSameHomotopy(grouped_paths[i], grouped_paths[j], start)) {
+            same[static_cast<size_t>(i) * n + j] = 1;
+        }
+    }
+
+    std::vector<int> parent(n);
+    std::vector<int> rank(n, 0);
+
+    for (int i = 0; i < n; ++i) {
+        parent[i] = i;
+    }
+
+    auto find_root = [&](int x) {
+        int root = x;
+
+        while (parent[root] != root) {
+            root = parent[root];
+        }
+
+        while (parent[x] != x) {
+            const int next = parent[x];
+            parent[x] = root;
+            x = next;
+        }
+
+        return root;
+    };
+
+    auto unite = [&](int a, int b) {
+        int root_a = find_root(a);
+        int root_b = find_root(b);
+
+        if (root_a == root_b) {
+            return;
+        }
+
+        if (rank[root_a] < rank[root_b]) {
+            std::swap(root_a, root_b);
+        }
+
+        parent[root_b] = root_a;
+
+        if (rank[root_a] == rank[root_b]) {
+            ++rank[root_a];
+        }
+    };
+
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            if (same[static_cast<size_t>(i) * n + j]) {
+                unite(i, j);
+            }
+        }
+    }
+
+    std::vector<int> root_to_homotopy_id(n, -1);
+    std::vector<int> homotopy_ids(n, -1);
+    int next_id = 0;
+
+    for (int i = 0; i < n; ++i) {
+        const int root = find_root(i);
+
+        if (root_to_homotopy_id[root] < 0) {
+            root_to_homotopy_id[root] = next_id++;
+        }
+
+        homotopy_ids[i] = root_to_homotopy_id[root];
+    }
+
+    if (has_previous) {
+        previous_homotopy_id = homotopy_ids[0];
+    }
+
+    cand_paths.reserve(n - candidate_offset);
+
+    for (int i = candidate_offset; i < n; ++i) {
+        PathCandidate cand;
+        cand.path = grouped_paths[i];
+        cand.homotopy_id = homotopy_ids[i];
+        cand.temporal_risk_score = 0.0;
+        cand_paths.push_back(cand);
+    }
+
+    return cand_paths;
 }
 
 bool TemporalRiskAwarePlanner::isSameHomotopy(const std::vector<geometry_msgs::PoseStamped>& patha, 
@@ -700,7 +834,19 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
     const geometry_msgs::Quaternion goal_line_orientation = tf2::toMsg(goal_line_q);
 
     // Determine the width of the goal line 
-    double half_line_width = 2.2; 
+    const double resolution = costmap_->getResolution();
+    const int map_size = std::min(static_cast<int>(costmap_->getSizeInCellsX()), static_cast<int>(costmap_->getSizeInCellsY()));
+
+    int goal_line_half_length_cells =
+        std::min(
+            static_cast<int>(0.6 * dist_to_goal / resolution),
+            static_cast<int>(0.06 * map_size)
+        ) - 2;
+
+    goal_line_half_length_cells = std::max(1, goal_line_half_length_cells);
+
+    double half_line_width =
+        static_cast<double>(goal_line_half_length_cells) * resolution;
     double end1_x = center_x + half_line_width * std::cos(perp_angle);
     double end1_y = center_y + half_line_width * std::sin(perp_angle);
     double end2_x = center_x - half_line_width * std::cos(perp_angle);
@@ -787,22 +933,30 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
         }
     }
 
-    // 5. Uniformly sample endpoints from each obstacle-free safe segment
-    int samples_per_segment = 3;
+    // 5. Uniformly sample endpoints based on segment length from each obstacle-free safe segment
+    const int min_segment_size = 3;
+    const int cells_per_sample = 20;
+    const int max_samples_per_segment = 5;
 
     for (const auto& segment : safe_segments) {
-        // Noise filtering: Accept only valid passages with at least 4 continuous cells
-        if (segment.size() < 3) continue; 
+        if (segment.size() < min_segment_size) continue;
+
+        int samples_per_segment =
+            static_cast<int>(segment.size()) / cells_per_sample;
+
+        samples_per_segment =
+            std::max(1, std::min(max_samples_per_segment, samples_per_segment));
+
+        if (samples_per_segment == 1) {
+            endpoints.push_back(segment[segment.size() / 2]);
+            continue;
+        }
 
         for (int i = 0; i < samples_per_segment; ++i) {
-            int target_idx = 0;
-            
-            if (samples_per_segment == 1) {
-                target_idx = segment.size() / 2;
-            } else {
-                target_idx = (i * (segment.size() - 1)) / (samples_per_segment - 1);
-            }
-            
+            const int target_idx =
+                (i * (static_cast<int>(segment.size()) - 1)) /
+                (samples_per_segment - 1);
+
             endpoints.push_back(segment[target_idx]);
         }
     }
@@ -815,24 +969,22 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
         return 1e9;
     }
 
-    const int width  = static_cast<int>(latest_voxgrid_.width);
-    const int height = static_cast<int>(latest_voxgrid_.height);
-    const int depth  = static_cast<int>(latest_voxgrid_.depth);
-
     if (!has_voxgrid_) {
         return 0.0;
     }
+
+    const int width  = static_cast<int>(latest_voxgrid_.width);
+    const int height = static_cast<int>(latest_voxgrid_.height);
+    const int depth  = static_cast<int>(latest_voxgrid_.depth);
 
     if (width <= 0 || height <= 0 || depth <= 0 ||
         latest_voxgrid_.dl <= 0.0 || latest_voxgrid_.dt <= 0.0) {
         return 0.0;
     }
 
-    const size_t slice_size =
-        static_cast<size_t>(width) * static_cast<size_t>(height);
+    const size_t slice_size = static_cast<size_t>(width) * static_cast<size_t>(height);
 
-    const size_t expected_size =
-        slice_size * static_cast<size_t>(depth);
+    const size_t expected_size = slice_size * static_cast<size_t>(depth);
 
     if (latest_voxgrid_.data.size() < expected_size) {
         return 0.0;
@@ -840,43 +992,17 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
 
     const double speed = std::max(current_robot_speed_, 0.1);
 
-    const double slope_weight = 1.0;
-    const double time_decay = 0.7;
+    auto clampTimeIndex = [&](int t_idx) -> int {
+        return std::max(0, std::min(t_idx, depth - 1));
+    };
 
-    double accumulated_dist = 0.0;
-    double path_score = 0.0;
-
-    double prev_risk = 0.0;
-    bool has_prev_risk = false;
-    bool has_valid_risk = false;
-
-    for (size_t i = 0; i < path.size(); i += 3) {
-        if (i > 0) {
-            accumulated_dist += distance2D(path[i - 1], path[i]);
-        }
-
-        const double arrival_time = accumulated_dist / speed;
-
-        int t_idx = static_cast<int>(
-            std::floor(arrival_time / latest_voxgrid_.dt));
-
-        t_idx = std::max(0, std::min(t_idx, depth - 1));
-
-        const double wx = path[i].pose.position.x;
-        const double wy = path[i].pose.position.y;
-
-        const int x_idx = static_cast<int>(
-            std::floor((wx - latest_voxgrid_.origin.x) /
-                       latest_voxgrid_.dl));
-
-        const int y_idx = static_cast<int>(
-            std::floor((wy - latest_voxgrid_.origin.y) /
-                       latest_voxgrid_.dl));
-
+    auto getRiskAt = [&](int x_idx, int y_idx, int t_idx) -> double {
         if (x_idx < 0 || y_idx < 0 ||
             x_idx >= width || y_idx >= height) {
-            continue;
+            return 0.0;
         }
+
+        t_idx = clampTimeIndex(t_idx);
 
         const size_t index =
             static_cast<size_t>(t_idx) * slice_size +
@@ -884,28 +1010,99 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
             static_cast<size_t>(x_idx);
 
         if (index >= latest_voxgrid_.data.size()) {
+            return 0.0;
+        }
+
+        return static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
+    };
+
+    auto worldToVoxIndex = [&](double wx, double wy,
+                               int& x_idx, int& y_idx) -> bool {
+        x_idx = static_cast<int>(
+            std::floor((wx - latest_voxgrid_.origin.x) /
+                       latest_voxgrid_.dl));
+
+        y_idx = static_cast<int>(
+            std::floor((wy - latest_voxgrid_.origin.y) /
+                       latest_voxgrid_.dl));
+
+        return !(x_idx < 0 || y_idx < 0 ||
+                 x_idx >= width || y_idx >= height);
+    };
+
+    std::vector<double> cumulative_dist(path.size(), 0.0);
+
+    for (size_t i = 1; i < path.size(); ++i) {
+        cumulative_dist[i] =
+            cumulative_dist[i - 1] + distance2D(path[i - 1], path[i]);
+    }
+
+    double path_score = 0.0;
+    bool has_valid_risk = false;
+
+    bool has_prev_peak = false;
+    double prev_peak_time = 0.0;
+    double prev_cumulative_dist = 0.0;
+
+    const size_t sample_stride = 3;
+
+    for (size_t i = 0; i < path.size(); i += sample_stride) {
+        const double arrival_time = cumulative_dist[i] / speed;
+
+        int arrival_t_idx =
+            static_cast<int>(std::floor(arrival_time / latest_voxgrid_.dt));
+
+        arrival_t_idx = clampTimeIndex(arrival_t_idx);
+
+        int x_idx = 0;
+        int y_idx = 0;
+
+        if (!worldToVoxIndex(path[i].pose.position.x,
+                             path[i].pose.position.y,
+                             x_idx,
+                             y_idx)) {
             continue;
         }
 
-        const double risk =
-            static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
+        const double r_now = getRiskAt(x_idx, y_idx, arrival_t_idx);
 
-        double positive_slope = 0.0;
+        double peak_risk = 0.0;
+        int peak_t_idx = 0;
 
-        if (has_prev_risk) {
-            positive_slope = std::max(0.0, risk - prev_risk);
+        for (int tk = 0; tk < depth; ++tk) 
+        {
+            const double r = getRiskAt(x_idx, y_idx, tk);
+
+            if (r > peak_risk) {
+                peak_risk = r;
+                peak_t_idx = tk;
+            }
         }
 
-        const double time_weight =
-            std::exp(-time_decay * arrival_time);
+        const double peak_time = static_cast<double>(peak_t_idx) * latest_voxgrid_.dt;
 
-        const double point_score =
-            risk + slope_weight * positive_slope * time_weight;
+        const double overlap_cost = peak_risk / (1.0 + std::fabs(arrival_time - peak_time));
+
+        double motion_cost = 0.0;
+
+        if (has_prev_peak) 
+        {
+            const double ds = cumulative_dist[i] - prev_cumulative_dist;
+
+            if (ds > 1e-3) 
+            {
+                const double peak_slope = (peak_time - prev_peak_time) / ds;
+                motion_cost = peak_risk * (-peak_slope);
+            }
+        }
+
+        const double point_score = r_now + overlap_cost + 3 * motion_cost;
 
         path_score += point_score;
 
-        prev_risk = risk;
-        has_prev_risk = true;
+        prev_peak_time = peak_time;
+        prev_cumulative_dist = cumulative_dist[i];
+        has_prev_peak = true;
         has_valid_risk = true;
     }
 
@@ -1400,6 +1597,20 @@ void TemporalRiskAwarePlanner::publishPlanningDebugMarkers(
             marker.points.push_back(markerPoint(pose, 0.06));
         }
         marker_array.markers.push_back(marker);
+
+        const size_t label_idx = candidates[i].path.size() / 2;
+        visualization_msgs::Marker text_marker =
+            make_marker("sub_path_costs", static_cast<int>(i), visualization_msgs::Marker::TEXT_VIEW_FACING);
+        text_marker.pose = candidates[i].path[label_idx].pose;
+        text_marker.pose.position. y += 0.15;
+        text_marker.pose.position.z += 0.45;
+        text_marker.scale.z = 0.24;
+        setMarkerColor(text_marker, color[0], color[1], color[2], 1.0f);
+
+        char label[64];
+        std::snprintf(label, sizeof(label), "H%d  R %.2f", homotopy_id, candidates[i].temporal_risk_score);
+        text_marker.text = label;
+        marker_array.markers.push_back(text_marker);
     }
 
     if (selected_path.size() >= 2) {

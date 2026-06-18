@@ -198,8 +198,8 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         void publishPotential(float* potential);
         struct PathCandidate {
             std::vector<geometry_msgs::PoseStamped> path;
-            int homotopy_id;
-            double temporal_risk_score;
+            int homotopy_id = -1;
+            double temporal_risk_score = 0.0;
         };
 
         double distance2D(const geometry_msgs::PoseStamped& a,
@@ -233,8 +233,11 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         void pruneSubpath(const geometry_msgs::PoseStamped& start,
                           std::vector<geometry_msgs::PoseStamped>& pruned_subpath) const;
         bool isTemporalRiskAcceptable(const std::vector<geometry_msgs::PoseStamped>& path) const;
-        std::vector<PathCandidate> findHomotopyPaths(const geometry_msgs::PoseStamped& start, 
-                                                                       const std::vector<geometry_msgs::PoseStamped>& endpoints);
+        std::vector<std::vector<geometry_msgs::PoseStamped>> findMultiplePaths(const geometry_msgs::PoseStamped& start, const std::vector<geometry_msgs::PoseStamped>& endpoints);
+        std::vector<PathCandidate> groupPathsByHomotopy(const std::vector<std::vector<geometry_msgs::PoseStamped>>& valid_paths,
+                                                        const geometry_msgs::PoseStamped& start,
+                                                        const std::vector<geometry_msgs::PoseStamped>& previous_path,
+                                                        int& previous_homotopy_id);
         bool isSameHomotopy(const std::vector<geometry_msgs::PoseStamped>& patha, 
                               const std::vector<geometry_msgs::PoseStamped>& pathb,
                               const geometry_msgs::PoseStamped& start);

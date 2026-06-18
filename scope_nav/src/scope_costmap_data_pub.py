@@ -288,7 +288,7 @@ class ScopeCostmap:
             # ---------------------------------------------------------------
             # Create soft inflation decay filter
             # ---------------------------------------------------------------
-            inflation_radius_cells = 3  # Radius in pixels
+            inflation_radius_cells = 4  # Radius in pixels
             kernel_size = inflation_radius_cells * 2 + 1
             inflation_decay = 0.8  # Decay factor
 
