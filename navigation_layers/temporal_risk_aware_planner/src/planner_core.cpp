@@ -986,6 +986,156 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
 }
 
+// double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const
+// {
+//     if (path.empty()) {
+//         return 1e9;
+//     }
+
+//     if (!has_voxgrid_) {
+//         return 0.0;
+//     }
+
+//     const int width  = static_cast<int>(latest_voxgrid_.width);
+//     const int height = static_cast<int>(latest_voxgrid_.height);
+//     const int depth  = static_cast<int>(latest_voxgrid_.depth);
+
+//     if (width <= 0 || height <= 0 || depth <= 0 ||
+//         latest_voxgrid_.dl <= 0.0 || latest_voxgrid_.dt <= 0.0) {
+//         return 0.0;
+//     }
+
+//     const size_t slice_size = static_cast<size_t>(width) * static_cast<size_t>(height);
+
+//     const size_t expected_size = slice_size * static_cast<size_t>(depth);
+
+//     if (latest_voxgrid_.data.size() < expected_size) {
+//         return 0.0;
+//     }
+
+//     const double speed = std::max(current_robot_speed_, 0.1);
+
+//     auto clampTimeIndex = [&](int t_idx) -> int {
+//         return std::max(0, std::min(t_idx, depth - 1));
+//     };
+
+//     auto getRiskAt = [&](int x_idx, int y_idx, int t_idx) -> double {
+//         if (x_idx < 0 || y_idx < 0 ||
+//             x_idx >= width || y_idx >= height) {
+//             return 0.0;
+//         }
+
+//         t_idx = clampTimeIndex(t_idx);
+
+//         const size_t index =
+//             static_cast<size_t>(t_idx) * slice_size +
+//             static_cast<size_t>(y_idx) * static_cast<size_t>(width) +
+//             static_cast<size_t>(x_idx);
+
+//         if (index >= latest_voxgrid_.data.size()) {
+//             return 0.0;
+//         }
+
+//         return static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
+//     };
+
+//     auto worldToVoxIndex = [&](double wx, double wy,
+//                                int& x_idx, int& y_idx) -> bool {
+//         x_idx = static_cast<int>(
+//             std::floor((wx - latest_voxgrid_.origin.x) /
+//                        latest_voxgrid_.dl));
+
+//         y_idx = static_cast<int>(
+//             std::floor((wy - latest_voxgrid_.origin.y) /
+//                        latest_voxgrid_.dl));
+
+//         return !(x_idx < 0 || y_idx < 0 ||
+//                  x_idx >= width || y_idx >= height);
+//     };
+
+//     std::vector<double> cumulative_dist(path.size(), 0.0);
+
+//     for (size_t i = 1; i < path.size(); ++i) {
+//         cumulative_dist[i] =
+//             cumulative_dist[i - 1] + distance2D(path[i - 1], path[i]);
+//     }
+
+//     double path_score = 0.0;
+//     bool has_valid_risk = false;
+
+//     bool has_prev_peak = false;
+//     double prev_peak_time = 0.0;
+//     double prev_cumulative_dist = 0.0;
+
+//     const size_t sample_stride = 3;
+
+//     for (size_t i = 0; i < path.size(); i += sample_stride) {
+//         const double arrival_time = cumulative_dist[i] / speed;
+
+//         int arrival_t_idx =
+//             static_cast<int>(std::floor(arrival_time / latest_voxgrid_.dt));
+
+//         arrival_t_idx = clampTimeIndex(arrival_t_idx);
+
+//         int x_idx = 0;
+//         int y_idx = 0;
+
+//         if (!worldToVoxIndex(path[i].pose.position.x,
+//                              path[i].pose.position.y,
+//                              x_idx,
+//                              y_idx)) {
+//             continue;
+//         }
+
+//         const double r_now = getRiskAt(x_idx, y_idx, arrival_t_idx);
+
+//         double peak_risk = 0.0;
+//         int peak_t_idx = 0;
+
+//         for (int tk = 0; tk < depth; ++tk) 
+//         {
+//             const double r = getRiskAt(x_idx, y_idx, tk);
+
+//             if (r > peak_risk) {
+//                 peak_risk = r;
+//                 peak_t_idx = tk;
+//             }
+//         }
+
+//         const double peak_time = static_cast<double>(peak_t_idx) * latest_voxgrid_.dt;
+
+//         const double overlap_cost = peak_risk / (1.0 + std::fabs(arrival_time - peak_time));
+
+//         double motion_cost = 0.0;
+
+//         if (has_prev_peak) 
+//         {
+//             const double ds = cumulative_dist[i] - prev_cumulative_dist;
+
+//             if (ds > 1e-3) 
+//             {
+//                 const double peak_slope = (peak_time - prev_peak_time) / ds;
+//                 motion_cost = peak_risk * (-peak_slope);
+//             }
+//         }
+
+//         const double point_score = r_now + overlap_cost + 3 * motion_cost;
+
+//         path_score += point_score;
+
+//         prev_peak_time = peak_time;
+//         prev_cumulative_dist = cumulative_dist[i];
+//         has_prev_peak = true;
+//         has_valid_risk = true;
+//     }
+
+//     if (!has_valid_risk) {
+//         return 1e9;
+//     }
+
+//     return path_score;
+// }
+
 double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const
 {
     if (path.empty()) {
@@ -1005,15 +1155,42 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
         return 0.0;
     }
 
-    const size_t slice_size = static_cast<size_t>(width) * static_cast<size_t>(height);
+    const size_t slice_size =
+        static_cast<size_t>(width) * static_cast<size_t>(height);
 
-    const size_t expected_size = slice_size * static_cast<size_t>(depth);
+    const size_t expected_size =
+        slice_size * static_cast<size_t>(depth);
 
     if (latest_voxgrid_.data.size() < expected_size) {
         return 0.0;
     }
 
+    // ------------------------------------------------------------
+    // Parameters
+    // ------------------------------------------------------------
     const double speed = std::max(current_robot_speed_, 0.1);
+
+    const size_t sample_stride = 3;
+
+    // Spatial 3x3 kernel
+    const int spatial_radius = 1;
+
+    // Temporal 3-frame kernel for arrival-time cost
+    const int arrival_time_radius = 1;
+
+    // Candidate threshold for temporal event tracking
+    const double risk_threshold = 0.10;
+
+    // Temporal connection window between adjacent path samples
+    // ex) 2 means candidate events can be connected if their time index differs by <= 2
+    const int temporal_window_steps = 2;
+
+    // Minimum event length to be treated as a valid dynamic risk event
+    const int min_event_length = 3;
+
+    // Weights
+    const double w_arrival = 2.0;
+    const double w_temporal_motion = 3.0;
 
     auto clampTimeIndex = [&](int t_idx) -> int {
         return std::max(0, std::min(t_idx, depth - 1));
@@ -1039,6 +1216,39 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
         return static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
     };
 
+    auto getSpatialKernelMax = [&](int x_idx, int y_idx, int t_idx) -> double {
+        double max_risk = 0.0;
+
+        t_idx = clampTimeIndex(t_idx);
+
+        for (int dy = -spatial_radius; dy <= spatial_radius; ++dy) {
+            for (int dx = -spatial_radius; dx <= spatial_radius; ++dx) {
+                const int nx = x_idx + dx;
+                const int ny = y_idx + dy;
+
+                max_risk = std::max(max_risk, getRiskAt(nx, ny, t_idx));
+            }
+        }
+
+        return max_risk;
+    };
+
+    auto getSpatioTemporalKernelMax =
+        [&](int x_idx, int y_idx, int t_idx, int time_radius) -> double
+    {
+        double max_risk = 0.0;
+
+        for (int dt = -time_radius; dt <= time_radius; ++dt) {
+            const int nt = clampTimeIndex(t_idx + dt);
+            max_risk = std::max(
+                max_risk,
+                getSpatialKernelMax(x_idx, y_idx, nt)
+            );
+        }
+
+        return max_risk;
+    };
+
     auto worldToVoxIndex = [&](double wx, double wy,
                                int& x_idx, int& y_idx) -> bool {
         x_idx = static_cast<int>(
@@ -1053,6 +1263,9 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
                  x_idx >= width || y_idx >= height);
     };
 
+    // ------------------------------------------------------------
+    // Compute cumulative path distance
+    // ------------------------------------------------------------
     std::vector<double> cumulative_dist(path.size(), 0.0);
 
     for (size_t i = 1; i < path.size(); ++i) {
@@ -1060,23 +1273,22 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
             cumulative_dist[i - 1] + distance2D(path[i - 1], path[i]);
     }
 
-    double path_score = 0.0;
-    bool has_valid_risk = false;
+    // ------------------------------------------------------------
+    // Sample path points
+    // ------------------------------------------------------------
+    struct SamplePoint {
+        size_t path_idx;
+        int x_idx;
+        int y_idx;
+        double s;
+        double arrival_time;
+        int arrival_t_idx;
+    };
 
-    bool has_prev_peak = false;
-    double prev_peak_time = 0.0;
-    double prev_cumulative_dist = 0.0;
-
-    const size_t sample_stride = 3;
+    std::vector<SamplePoint> samples;
+    samples.reserve(path.size() / sample_stride + 1);
 
     for (size_t i = 0; i < path.size(); i += sample_stride) {
-        const double arrival_time = cumulative_dist[i] / speed;
-
-        int arrival_t_idx =
-            static_cast<int>(std::floor(arrival_time / latest_voxgrid_.dt));
-
-        arrival_t_idx = clampTimeIndex(arrival_t_idx);
-
         int x_idx = 0;
         int y_idx = 0;
 
@@ -1087,51 +1299,253 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
             continue;
         }
 
-        const double r_now = getRiskAt(x_idx, y_idx, arrival_t_idx);
+        const double arrival_time = cumulative_dist[i] / speed;
+        const int arrival_t_idx =
+            clampTimeIndex(
+                static_cast<int>(std::floor(arrival_time / latest_voxgrid_.dt))
+            );
 
-        double peak_risk = 0.0;
-        int peak_t_idx = 0;
+        SamplePoint sp;
+        sp.path_idx = i;
+        sp.x_idx = x_idx;
+        sp.y_idx = y_idx;
+        sp.s = cumulative_dist[i];
+        sp.arrival_time = arrival_time;
+        sp.arrival_t_idx = arrival_t_idx;
 
-        for (int tk = 0; tk < depth; ++tk) 
-        {
-            const double r = getRiskAt(x_idx, y_idx, tk);
+        samples.push_back(sp);
+    }
 
-            if (r > peak_risk) {
-                peak_risk = r;
-                peak_t_idx = tk;
-            }
-        }
+    if (samples.empty()) {
+        return 1e9;
+    }
 
-        const double peak_time = static_cast<double>(peak_t_idx) * latest_voxgrid_.dt;
+    // ------------------------------------------------------------
+    // 1. Arrival Time Cost
+    //
+    // For each time-parameterized path point, use the peak occupancy risk inside the corresponding 3x3x3 spatio-temporal kernel.
+    // ------------------------------------------------------------
+    double arrival_cost = 0.0;
+    bool has_valid_risk = false;
 
-        const double overlap_cost = peak_risk / (1.0 + std::fabs(arrival_time - peak_time));
+    for (const auto& sp : samples) {
+        const double r_arrival =
+            getSpatioTemporalKernelMax(
+                sp.x_idx,
+                sp.y_idx,
+                sp.arrival_t_idx,
+                arrival_time_radius
+            );
 
-        double motion_cost = 0.0;
-
-        if (has_prev_peak) 
-        {
-            const double ds = cumulative_dist[i] - prev_cumulative_dist;
-
-            if (ds > 1e-3) 
-            {
-                const double peak_slope = (peak_time - prev_peak_time) / ds;
-                motion_cost = peak_risk * (-peak_slope);
-            }
-        }
-
-        const double point_score = r_now + overlap_cost + 3 * motion_cost;
-
-        path_score += point_score;
-
-        prev_peak_time = peak_time;
-        prev_cumulative_dist = cumulative_dist[i];
-        has_prev_peak = true;
+        arrival_cost += r_arrival;
         has_valid_risk = true;
     }
 
-    if (!has_valid_risk) {
-        return 1e9;
+    // ------------------------------------------------------------
+    // 2. Temporal Motion Cost
+    //
+    // Extract temporal risk candidates at each path point.
+    // For each sampled path point, thresholded temporal segments are found, and each segment is represented by its maximum-risk time.
+    // ------------------------------------------------------------
+    struct Candidate {
+        int t_idx;
+        double risk;
+    };
+
+    std::vector<std::vector<Candidate>> candidates(samples.size());
+
+    for (size_t si = 0; si < samples.size(); ++si) 
+    {
+        const auto& sp = samples[si];
+
+        bool in_segment = false;
+
+        int peak_t_idx = 0;
+        double peak_risk = 0.0;
+
+        for (int tk = 0; tk < depth; ++tk) 
+        {
+            const double r_curr =
+                getSpatialKernelMax(sp.x_idx, sp.y_idx, tk);
+
+            if (r_curr >= risk_threshold) 
+            {
+                // Start a new thresholded temporal segment
+                if (!in_segment) 
+                {
+                    in_segment = true;
+                    peak_t_idx = tk;
+                    peak_risk = r_curr;
+                }
+                // Continue current segment and update its peak
+                else 
+                {
+                    if (r_curr > peak_risk) 
+                    {
+                        peak_t_idx = tk;
+                        peak_risk = r_curr;
+                    }
+                }
+            } 
+            else 
+            {
+                // End current segment and save its representative peak
+                if (in_segment) 
+                {
+                    Candidate cand;
+                    cand.t_idx = peak_t_idx;
+                    cand.risk = peak_risk;
+
+                    candidates[si].push_back(cand);
+
+                    in_segment = false;
+                    peak_t_idx = 0;
+                    peak_risk = 0.0;
+                }
+            }
+        }
+
+        // If a segment continues until the last time step, save it
+        if (in_segment) 
+        {
+            Candidate cand;
+            cand.t_idx = peak_t_idx;
+            cand.risk = peak_risk;
+
+            candidates[si].push_back(cand);
+        }
     }
+
+    // ------------------------------------------------------------
+    // Track dynamic risk events across path samples.
+    // A track is extended only when a candidate in the next path point exists within the temporal window.
+    // ------------------------------------------------------------
+    struct Track {
+        int start_t_idx;
+        int last_t_idx;
+        size_t start_sample_idx;
+        size_t last_sample_idx;
+        int length;
+        double sum_risk;
+    };
+
+    std::vector<Track> active_tracks;
+    std::vector<Track> completed_tracks;
+
+    for (size_t si = 0; si < samples.size(); ++si) 
+    {
+        std::vector<Track> next_active_tracks;
+        std::vector<bool> has_predecessor(candidates[si].size(), false);
+
+        // Extend existing tracks with all connectable candidates
+        for (const auto& tr : active_tracks) 
+        {
+            bool extended = false;
+
+            for (int ci = 0; ci < static_cast<int>(candidates[si].size()); ++ci) 
+            {
+                const Candidate& cand = candidates[si][ci];
+                const int dt = std::abs(cand.t_idx - tr.last_t_idx);
+
+                if (dt <= temporal_window_steps) 
+                {
+                    Track new_tr = tr;
+                    new_tr.last_t_idx = cand.t_idx;
+                    new_tr.last_sample_idx = si;
+                    new_tr.length += 1;
+                    new_tr.sum_risk += cand.risk;
+
+                    next_active_tracks.push_back(new_tr);
+
+                    has_predecessor[ci] = true;
+                    extended = true;
+                }
+            }
+
+            if (!extended) 
+            {
+                if (tr.length >= min_event_length) 
+                {
+                    completed_tracks.push_back(tr);
+                }
+            }
+        }
+
+        // Start new tracks only from candidates not connected from previous sample
+        for (int ci = 0; ci < static_cast<int>(candidates[si].size()); ++ci) 
+        {
+            if (has_predecessor[ci]) 
+            {
+                continue;
+            }
+
+            const Candidate& cand = candidates[si][ci];
+
+            Track tr;
+            tr.start_t_idx = cand.t_idx;
+            tr.last_t_idx = cand.t_idx;
+            tr.start_sample_idx = si;
+            tr.last_sample_idx = si;
+            tr.length = 1;
+            tr.sum_risk = cand.risk;
+
+            next_active_tracks.push_back(tr);
+        }
+
+        active_tracks.swap(next_active_tracks);
+    }
+
+    // Finalize remaining active tracks
+    for (const auto& tr : active_tracks) 
+    {
+        if (tr.length >= min_event_length) 
+        {
+            completed_tracks.push_back(tr);
+        }
+    }
+
+    // ------------------------------------------------------------
+    // Compute signed temporal motion cost.
+    //
+    // If event time decreases along the path direction:
+    //     incoming risk -> positive cost
+    //
+    // If event time increases along the path direction:
+    //     outgoing risk -> negative cost
+    // ------------------------------------------------------------
+    double temporal_motion_cost = 0.0;
+
+    for (const auto& tr : completed_tracks) {
+        const double s_start = samples[tr.start_sample_idx].s;
+        const double s_end   = samples[tr.last_sample_idx].s;
+
+        const double ds = s_end - s_start;
+
+        if (ds <= 1e-3) {
+            continue;
+        }
+
+        const double t_start =
+            static_cast<double>(tr.start_t_idx) * latest_voxgrid_.dt;
+
+        const double t_end =
+            static_cast<double>(tr.last_t_idx) * latest_voxgrid_.dt;
+
+        const double dt_event = t_end - t_start;
+        const double temporal_slope = dt_event / ds;
+
+        const double mean_event_risk =
+            tr.sum_risk / static_cast<double>(tr.length);
+
+        const double event_cost =
+            -mean_event_risk * temporal_slope;
+
+        temporal_motion_cost += event_cost;
+    }
+
+    const double path_score =
+        w_arrival * arrival_cost +
+        w_temporal_motion * temporal_motion_cost;
 
     return path_score;
 }
