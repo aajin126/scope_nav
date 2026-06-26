@@ -11,6 +11,7 @@ local_costmap:
    transform_tolerance: 0.5 #0.5
    plugins:
     - {name: obstacle_layer,      type: "costmap_2d::VoxelLayer"}
+    - {name: inflation_layer,     type: "costmap_2d::InflationLayer"}
     - {name: scope_prediction_layer,  type: "social_navigation_layers::ProbabilityLayer"}
     - {name: scope_uncertainty_layer, type: "social_navigation_layers::ProbabilityLayer"}
-    - {name: inflation_layer,     type: "costmap_2d::InflationLayer"}
+
