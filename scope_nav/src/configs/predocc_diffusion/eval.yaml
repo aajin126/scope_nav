@@ -15,7 +15,7 @@ model:
     convlstm_hidden_dim: 33
     scale_factor: 0.374106
 
-    first_stage_ckpt_path: "./pretrained_models/first_stage_models/AE/v10.0/model.ckpt"
+    first_stage_ckpt_path: "/home/glab/dyna_ws/src/scope_nav/scope_nav/src/model/predocc_diff/ae10.0/model.pth"
 
     first_stage_config:
       target: models.autoencoder.SequenceAutoencoderKL

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from .local_occ_grid_map import LocalMap
+from predocc.data.local_occ_grid_map import LocalMap
 from .dataloader import PredOccDataset
 
 POINTS = 1080   # number of lidar points

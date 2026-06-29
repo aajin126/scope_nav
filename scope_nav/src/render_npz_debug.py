@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import torch
 
 # 너가 사용하던 LocalMap 로직 그대로 재사용
-from local_occ_grid_map import LocalMap
+from predocc.data.local_occ_grid_map import LocalMap
 
 # --------- Map params (메인 노드와 동일하게 맞춰야 함) ----------
 IMG_SIZE = 64

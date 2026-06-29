@@ -9,6 +9,7 @@
 #------------------------------------------------------------------------------
 
 from random import choice
+import os
 import rospy
 # custom define messages:
 from scope_msgs.msg import ScopeInputData, ScopeOutputData
@@ -21,16 +22,18 @@ from vox_msgs.msg import VoxGrid
 # python: 
 import numpy as np
 import math
+
 # import the model and all of its variables/functions
 #
 from model import *
-from local_occ_grid_map import LocalMap
-from reproj import reprojection, reprojection_to_map
+from predocc.data.local_occ_grid_map import LocalMap
+from predocc.occ_util import reprojection, reprojection_to_map
 import torch
+import torch.nn.functional as F
 import threading
 from omegaconf import OmegaConf
 from util import instantiate_from_config
-from models.ddim import DDIMSampler
+from predocc.models.diffusion.ddim import DDIMSampler
 import time
 
 # Constants
@@ -52,8 +55,7 @@ RESOLUTION = 0.1        # Grid resolution in [m]'
 TRESHOLD_P_OCC = 0.8    # Occupancy threshold
 
 # for reproducibility, we seed the rng
-#
-set_seed(SEED1)        
+#set_seed(SEED1)        
 # set the device to use GPU if available:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

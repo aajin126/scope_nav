@@ -22,7 +22,7 @@ import math
 # import the model and all of its variables/functions
 #
 from model import *
-from local_occ_grid_map import LocalMap
+from predocc.data.local_occ_grid_map import LocalMap
 from scope_gridmap_updater import GridMapTransformer
 import torch
 import threading
