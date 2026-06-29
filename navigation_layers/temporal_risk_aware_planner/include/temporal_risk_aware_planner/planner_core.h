@@ -61,6 +61,7 @@
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <omp.h>
+#include <std_msgs/Float64.h>
 
 namespace temporal_risk_aware_planner {
 
@@ -313,6 +314,7 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         geometry_msgs::PoseStamped global_goal_;
         geometry_msgs::PoseStamped last_global_goal_;
         std::vector<geometry_msgs::PoseStamped> previous_subpath_;
+        ros::Publisher planning_time_pub_;
 
         dynamic_reconfigure::Server<temporal_risk_aware_planner::TemporalRiskAwarePlannerConfig> *dsrv_;
         void reconfigureCB(temporal_risk_aware_planner::TemporalRiskAwarePlannerConfig &config, uint32_t level);
