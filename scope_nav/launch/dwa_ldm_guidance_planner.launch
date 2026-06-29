@@ -4,66 +4,20 @@
   <arg name="rviz" default="true"/> 
   <arg name="debug_save" value="true"/>
 
-  <!-- eng_hall -->
-  <!-- <arg name="scene_file" default="$(find pedsim_simulator)/scenarios/eng_hall.xml"/>  
-  <arg name="world_name" default="$(find pedsim_gazebo_plugin)/worlds/eng_hall.world"/>
-  <arg name="map_file" default="$(find robot_gazebo)/maps/gazebo_eng_lobby/gazebo_eng_lobby.yaml"/>
-  <arg name="pose_initial_x" default="13.5"/> 
-  <arg name="pose_initial_y" default="21.0"/>
-  <arg name="pose_initial_theta" default="0.0"/>
-  <arg name="initial_pose_x" default="10.5"/>
-  <arg name="initial_pose_y" default="21.0"/>
-  <arg name="initial_pose_a" default="0.13"/> -->
-
-  <!-- xcorridor -->
-  <!--arg name="world_file" default="xcorridor" />
-  <arg name="scene_file" default="$(find sim_arena)/worlds/$(arg world_file)/scenarios/default.xml"/>
-  <arg name="world_name" default="$(find sim_arena)/worlds/$(arg world_file)/worlds/$(arg world_file).world"/>
-  <arg name="map_file" default="$(find sim_arena)/worlds/$(arg world_file)/map/map.yaml" />
-  <arg name="pose_initial_x" default="0.0"/> 
-  <arg name="pose_initial_y" default="4.0"/>
-  <arg name="pose_initial_theta" default="-1.57"/>
-  <arg name="initial_pose_x" default="0.0"/>
-  <arg name="initial_pose_y" default="4.0"/>
-  <arg name="initial_pose_a" default="-1.57"/-->
-
-  <!-- freiburg -->
-  <!-- <arg name="scene_file" default="$(find pedsim_simulator)/scenarios/freiburg.xml"/>  
-  <arg name="world_name" default="$(find pedsim_gazebo_plugin)/worlds/freiburg.world"/>
-  <arg name="map_file" default="$(find robot_gazebo)/maps/gazebo_freiburg/gazebo_freiburg.yaml"/>
-  <arg name="pose_initial_x" default="10.0"/> 
-  <arg name="pose_initial_y" default="23.0"/>
-  <arg name="pose_initial_theta" default="-1.57"/>
-  <arg name="initial_pose_x" default="7.0"/>
-  <arg name="initial_pose_y" default="6.0"/>
-  <arg name="initial_pose_a" default="-1.57"/> -->
-
-  <!-- experiment_room_2 -->
-  <!-- <arg name="world_file" default="experiment_room_2" />
-  <arg name="scene_file" default="$(find sim_arena)/worlds/$(arg world_file)/scenarios/default.xml"/>  
-  <arg name="world_name" default="$(find sim_arena)/worlds/$(arg world_file)/worlds/$(arg world_file).world"/>
-  <arg name="map_file" default="$(find sim_arena)/worlds/$(arg world_file)/map/map.yaml"/>
-  <arg name="pose_initial_x" default="-13.0"/> 
-  <arg name="pose_initial_y" default="0.0"/>
-  <arg name="pose_initial_theta" default="0.0"/>
-  <arg name="initial_pose_x" default="-13.0"/>
-  <arg name="initial_pose_y" default="0.0"/>
-  <arg name="initial_pose_a" default="0.0"/> -->
-
   <!-- test1 -->
-  <!-- <arg name="world_file" default="test1" />
+  <arg name="world_file" default="test1" />
   <arg name="scene_file" default="$(find sim_arena)/worlds/test/$(arg world_file)/scenarios/default.xml"/>  
   <arg name="world_name" default="$(find sim_arena)/worlds/test/$(arg world_file)/worlds/$(arg world_file).world"/>
   <arg name="map_file" default="$(find sim_arena)/worlds/test/$(arg world_file)/map/map.yaml"/>
-  <arg name="pose_initial_x" default="-16.0"/> 
+  <arg name="pose_initial_x" default="-15.0"/> 
   <arg name="pose_initial_y" default="-2.0"/>
   <arg name="pose_initial_theta" default="0.0"/>
-  <arg name="initial_pose_x" default="-16.0"/>
+  <arg name="initial_pose_x" default="-15.0"/>
   <arg name="initial_pose_y" default="-2.0"/>
-  <arg name="initial_pose_a" default="0.0"/> -->
+  <arg name="initial_pose_a" default="0.0"/>
 
   <!-- test2 -->
-  <arg name="world_file" default="test2" />
+  <!-- <arg name="world_file" default="test2" />
   <arg name="scene_file" default="$(find sim_arena)/worlds/test/$(arg world_file)/scenarios/default.xml"/>  
   <arg name="world_name" default="$(find sim_arena)/worlds/test/$(arg world_file)/worlds/$(arg world_file).world"/>
   <arg name="map_file" default="$(find sim_arena)/worlds/test/$(arg world_file)/map/map.yaml"/>
@@ -72,7 +26,7 @@
   <arg name="pose_initial_theta" default="0.0"/>
   <arg name="initial_pose_x" default="-4.5"/>
   <arg name="initial_pose_y" default="-5"/>
-  <arg name="initial_pose_a" default="0.0"/>
+  <arg name="initial_pose_a" default="0.0"/> -->
 
   <!-- test3,4 -->
   <!-- <arg name="world_file" default="test3" />
