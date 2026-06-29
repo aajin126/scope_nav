@@ -199,7 +199,7 @@ class ScopeCostmap:
                 self.tf_listener = tf.TransformListener()
 
             try:
-                (trans, rot) = self.tf_listener.lookupTransform('/map', '/base_footprint', rospy.Time(0))
+                (trans, rot) = self.tf_listener.lookupTransform('/odom', '/base_footprint', rospy.Time(0))
                 (_, _, theta) = tft.euler_from_quaternion(rot)
                 curr_pos_tf = np.array([trans[0], trans[1], theta], dtype=np.float32)
             except Exception as e:

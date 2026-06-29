@@ -1,6 +1,6 @@
 # folder
 .vscode/
-
+scope_eval/
 
 # TensorBoard event files
 runs/
@@ -14,3 +14,5 @@ wandb/
 #bash files
 *.sh
 *.pyc
+bag.launch
+eval.py
