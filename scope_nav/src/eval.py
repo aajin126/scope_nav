@@ -408,8 +408,8 @@ def build_arg_parser():
     parser.add_argument("--launch-package", default="scope_nav")
     parser.add_argument("--launch-file", default="dwa_ldm_guidance_planner.launch")
     parser.add_argument("--launch-arg", dest="launch_args", action="append", default=[])
-    parser.add_argument("--startup-wait-sec", type=float, default=8.0)
-    parser.add_argument("--shutdown-wait-sec", type=float, default=5.0)
+    parser.add_argument("--startup-wait-sec", type=float, default=9.0)
+    parser.add_argument("--shutdown-wait-sec", type=float, default=6.0)
 
     parser.add_argument("--gazebo-recording", dest="gazebo_recording", action="store_true", default=True)
     parser.add_argument("--gazebo-record-dir", default="gazebo_log")
@@ -435,13 +435,16 @@ def build_arg_parser():
 
     parser.add_argument("--check-rate", type=float, default=10.0)
     parser.add_argument("--max-odom-step", type=float, default=1.0)
-    parser.add_argument("--trial-gap-sec", type=float, default=5.0)
+    parser.add_argument("--trial-gap-sec", type=float, default=7.0)
 
     parser.add_argument("--use-sim-time", dest="use_sim_time", action="store_true", default=True)
 
     parser.add_argument("--cleanup-command", action="append", default=[
         "pkill -f 'gzclient' || true",
         "pkill -f 'gzserver' || true",
+        "pkill -f 'roslaunch' || true",
+        "pkill -f 'rosmaster' || true",
+        "pkill -f 'rosout' || true",
     ])
 
     return parser

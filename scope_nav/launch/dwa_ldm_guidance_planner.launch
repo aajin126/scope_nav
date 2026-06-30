@@ -107,4 +107,9 @@
   <!-- Rviz -->
   <include file="$(find scope_nav)/launch/view_navigation.launch" if="$(arg rviz)"/>
 
+  <!-- Bag recording -->
+  <include file="$(find scope_nav)/launch/bag_otter.launch">
+    <arg name="bag_path" value="$(arg bag_path)"/>
+  </include>
+
 </launch>

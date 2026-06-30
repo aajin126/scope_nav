@@ -306,7 +306,7 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
     {
         double prev_risk = evalTemporalRisk(previous_subpath_);
 
-        if (prev_risk < 3.0)
+        if (prev_risk < 4.0)
         {
             geometry_msgs::PoseStamped nearest_endpoint;
 
@@ -967,7 +967,7 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
     // 5. Uniformly sample endpoints based on segment length from each obstacle-free safe segment
     const int min_segment_size = 3;
     const int cells_per_sample = 20;
-    const int max_samples_per_segment = 5;
+    const int max_samples_per_segment = 4;
 
     for (const auto& segment : safe_segments) {
         if (segment.size() < min_segment_size) continue;
@@ -1047,8 +1047,8 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
     const int min_event_length = 2;
 
     // Weights
-    const double w_arrival = 2.0;
-    const double w_temporal_motion = 3.0;
+    const double w_arrival = 1.0;
+    const double w_temporal_motion = 2.0;
 
     auto clampTimeIndex = [&](int t_idx) -> int {
         return std::max(0, std::min(t_idx, depth - 1));
