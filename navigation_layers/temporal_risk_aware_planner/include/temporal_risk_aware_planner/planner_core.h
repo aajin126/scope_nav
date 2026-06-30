@@ -203,6 +203,24 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
             int homotopy_id = -1;
             double temporal_risk_score = 0.0;
         };
+        struct Track {
+            int start_t_idx;
+            int last_t_idx;
+            size_t start_sample_idx;
+            size_t last_sample_idx;
+            int length;
+            double sum_risk;
+            std::vector<size_t> sample_history;
+            std::vector<int> t_idx_history;
+        };
+        struct SamplePoint {
+            size_t path_idx;
+            int x_idx;
+            int y_idx;
+            double s;
+            double arrival_time;
+            int arrival_t_idx;
+        };
         struct PlannerWorkspace
         {
             int nx = 0;
@@ -235,6 +253,10 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
             size_t search_begin) const;     
         void publishSubgoalMarker(const geometry_msgs::PoseStamped& subgoal);
         void publishNearestMarker(const geometry_msgs::PoseStamped& nearest);
+        void publishTrackMarkers(
+            const std::vector<Track>& tracks, 
+            const std::vector<SamplePoint>& samples, 
+            const std::vector<geometry_msgs::PoseStamped>& path) const;
         void publishPlanningDebugMarkers(
             const std::vector<geometry_msgs::PoseStamped>& local_goal_line,
             const std::vector<geometry_msgs::PoseStamped>& endpoints,
@@ -286,6 +308,7 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         ros::Publisher subgoal_marker_pub_;
         ros::Publisher nearest_marker_pub_;
         ros::Publisher planning_debug_marker_pub_;
+        ros::Publisher planning_track_marker_pub_;
 
         PotentialCalculator* p_calc_;
         Expander* planner_;

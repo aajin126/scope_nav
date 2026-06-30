@@ -168,6 +168,8 @@ void TemporalRiskAwarePlanner::initialize(std::string name, costmap_2d::Costmap2
         subgoal_marker_pub_ = private_nh.advertise<visualization_msgs::Marker>("subgoal_marker", 1);
         nearest_marker_pub_ = private_nh.advertise<visualization_msgs::Marker>("nearest_marker", 1);
         planning_debug_marker_pub_ = private_nh.advertise<visualization_msgs::MarkerArray>("planning_debug_markers", 1, true);
+        planning_track_marker_pub_ = private_nh.advertise<visualization_msgs::MarkerArray>("planning_track_markers", 1, true);
+        planning_time_pub_ = private_nh.advertise<std_msgs::Float64>("planning_time_ms", 1);
 
         private_nh.param("allow_unknown", allow_unknown_, true);
         planner_->setHasUnknown(allow_unknown_);
@@ -246,7 +248,14 @@ bool TemporalRiskAwarePlanner::worldToMap(double wx, double wy, double& mx, doub
 }
 
 bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal, std::vector<geometry_msgs::PoseStamped>& plan) {
-    return makePlan(start, goal, default_tolerance_, plan);
+    const ros::WallTime planning_start = ros::WallTime::now();
+    bool result = makePlan(start, goal, default_tolerance_, plan);
+    const double planning_time_ms = (ros::WallTime::now() - planning_start).toSec() * 1000.0;
+    std_msgs::Float64 planning_time_msg;
+    planning_time_msg.data = planning_time_ms;
+    planning_time_pub_.publish(planning_time_msg);
+
+    return result;
 }
 
 bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start, const geometry_msgs::PoseStamped& goal,
@@ -440,7 +449,7 @@ std::vector<std::vector<geometry_msgs::PoseStamped>> TemporalRiskAwarePlanner::f
         getWorkspace(tid, nx, ny);
     }
 
-    #pragma omp parallel for num_threads(num_threads) schedule(dynamic)
+    #pragma omp parallel for 
     for (int i = 0; i < static_cast<int>(endpoints.size()); ++i) {
         const int tid = omp_get_thread_num();
 
@@ -510,7 +519,7 @@ std::vector<TemporalRiskAwarePlanner::PathCandidate>TemporalRiskAwarePlanner::gr
         }
     }
 
-    //#pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for 
     for (int k = 0; k < static_cast<int>(pairs.size()); ++k) {
         const int i = pairs[k].first;
         const int j = pairs[k].second;
@@ -1022,20 +1031,20 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
     const size_t sample_stride = 3;
 
     // Spatial 3x3 kernel
-    const int spatial_radius = 1;
+    const int spatial_radius = 0;
 
     // Temporal 3-frame kernel for arrival-time cost
     const int arrival_time_radius = 1;
 
     // Candidate threshold for temporal event tracking
-    const double risk_threshold = 0.10;
+    const double risk_threshold = 0.30;
 
     // Temporal connection window between adjacent path samples
     // ex) 2 means candidate events can be connected if their time index differs by <= 2
-    const int temporal_window_steps = 2;
+    const int temporal_window_steps = 3;
 
     // Minimum event length to be treated as a valid dynamic risk event
-    const int min_event_length = 3;
+    const int min_event_length = 2;
 
     // Weights
     const double w_arrival = 2.0;
@@ -1125,14 +1134,6 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
     // ------------------------------------------------------------
     // Sample path points
     // ------------------------------------------------------------
-    struct SamplePoint {
-        size_t path_idx;
-        int x_idx;
-        int y_idx;
-        double s;
-        double arrival_time;
-        int arrival_t_idx;
-    };
 
     std::vector<SamplePoint> samples;
     samples.reserve(path.size() / sample_stride + 1);
@@ -1269,14 +1270,6 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
     // Track dynamic risk events across path samples.
     // A track is extended only when a candidate in the next path point exists within the temporal window.
     // ------------------------------------------------------------
-    struct Track {
-        int start_t_idx;
-        int last_t_idx;
-        size_t start_sample_idx;
-        size_t last_sample_idx;
-        int length;
-        double sum_risk;
-    };
 
     std::vector<Track> active_tracks;
     std::vector<Track> completed_tracks;
@@ -1303,6 +1296,9 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
                     new_tr.last_sample_idx = si;
                     new_tr.length += 1;
                     new_tr.sum_risk += cand.risk;
+
+                    new_tr.sample_history.push_back(si);
+                    new_tr.t_idx_history.push_back(cand.t_idx);
 
                     next_active_tracks.push_back(new_tr);
 
@@ -1338,6 +1334,9 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
             tr.length = 1;
             tr.sum_risk = cand.risk;
 
+            tr.sample_history.push_back(si);
+            tr.t_idx_history.push_back(cand.t_idx);
+
             next_active_tracks.push_back(tr);
         }
 
@@ -1352,6 +1351,8 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
             completed_tracks.push_back(tr);
         }
     }
+
+    //publishTrackMarkers(active_tracks, samples, path);
 
     // ------------------------------------------------------------
     // Compute signed temporal motion cost.
@@ -1374,27 +1375,21 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
             continue;
         }
 
-        const double t_start =
-            static_cast<double>(tr.start_t_idx) * latest_voxgrid_.dt;
+        const double t_start = static_cast<double>(tr.start_t_idx) * latest_voxgrid_.dt;
 
-        const double t_end =
-            static_cast<double>(tr.last_t_idx) * latest_voxgrid_.dt;
+        const double t_end = static_cast<double>(tr.last_t_idx) * latest_voxgrid_.dt;
 
         const double dt_event = t_end - t_start;
         const double temporal_slope = dt_event / ds;
 
-        const double mean_event_risk =
-            tr.sum_risk / static_cast<double>(tr.length);
+        const double event_risk = tr.sum_risk;
 
-        const double event_cost =
-            -mean_event_risk * temporal_slope;
+        const double event_cost = -event_risk * temporal_slope;
 
         temporal_motion_cost += event_cost;
     }
 
-    const double path_score =
-        w_arrival * arrival_cost +
-        w_temporal_motion * temporal_motion_cost;
+    const double path_score = w_arrival * arrival_cost + w_temporal_motion * temporal_motion_cost;
 
     return path_score;
 }
@@ -1687,6 +1682,76 @@ void TemporalRiskAwarePlanner::voxGridCallback(const vox_msgs::VoxGrid::ConstPtr
     latest_voxgrid_ = *msg;
 
     has_voxgrid_ = !latest_voxgrid_.data.empty();
+}
+
+void TemporalRiskAwarePlanner::publishTrackMarkers(
+    const std::vector<Track>& tracks, 
+    const std::vector<SamplePoint>& samples, 
+    const std::vector<geometry_msgs::PoseStamped>& path) const 
+{
+    visualization_msgs::MarkerArray marker_array;
+    
+    visualization_msgs::Marker delete_marker;
+    delete_marker.action = visualization_msgs::Marker::DELETEALL;
+    marker_array.markers.push_back(delete_marker);
+
+    int marker_id = 0;
+
+    for (size_t i = 0; i < tracks.size(); ++i) {
+        const auto& tr = tracks[i];
+
+        visualization_msgs::Marker points_marker;
+        points_marker.header.frame_id = "odom";
+        points_marker.header.stamp = ros::Time::now();
+        points_marker.ns = "active_track_points";
+        points_marker.id = marker_id++;
+        points_marker.type = visualization_msgs::Marker::SPHERE_LIST;
+        points_marker.action = visualization_msgs::Marker::ADD;
+        
+        points_marker.scale.x = 0.2; 
+        points_marker.scale.y = 0.2;
+        points_marker.scale.z = 0.2;
+        
+        points_marker.color.r = 0.0; 
+        points_marker.color.g = 0.0;
+        points_marker.color.b = 1.0;
+        points_marker.color.a = 1.0;
+
+        visualization_msgs::Marker line_marker;
+        line_marker.header = points_marker.header;
+        line_marker.ns = "active_track_lines";
+        line_marker.id = marker_id++;
+        line_marker.type = visualization_msgs::Marker::LINE_STRIP;
+        line_marker.action = visualization_msgs::Marker::ADD;
+        
+        line_marker.scale.x = 0.05; 
+        
+        line_marker.color.r = 0.0; 
+        line_marker.color.g = 0.0;
+        line_marker.color.b = 1.0;
+        line_marker.color.a = 0.8;
+
+        for (size_t j = 0; j < tr.sample_history.size(); ++j) {
+            size_t s_idx = tr.sample_history[j];
+            int t_idx = tr.t_idx_history[j];
+            
+            size_t original_path_idx = samples[s_idx].path_idx;
+
+            geometry_msgs::Point p;
+            p.x = path[original_path_idx].pose.position.x;
+            p.y = path[original_path_idx].pose.position.y;
+
+            p.z = static_cast<double>(t_idx) * 0.1; 
+
+            points_marker.points.push_back(p);
+            line_marker.points.push_back(p);
+        }
+
+        marker_array.markers.push_back(points_marker);
+        marker_array.markers.push_back(line_marker);
+    }
+
+    planning_track_marker_pub_.publish(marker_array);
 }
 
 void TemporalRiskAwarePlanner::publishPlanningDebugMarkers(

@@ -406,9 +406,9 @@ def build_arg_parser():
     parser.add_argument("--trial", type=int, default=0, help=argparse.SUPPRESS)
 
     parser.add_argument("--launch-package", default="scope_nav")
-    parser.add_argument("--launch-file", default="dwa_so_scope_pu_nav.launch")
+    parser.add_argument("--launch-file", default="dwa_ldm_guidance_planner.launch")
     parser.add_argument("--launch-arg", dest="launch_args", action="append", default=[])
-    parser.add_argument("--startup-wait-sec", type=float, default=5.0)
+    parser.add_argument("--startup-wait-sec", type=float, default=8.0)
     parser.add_argument("--shutdown-wait-sec", type=float, default=5.0)
 
     parser.add_argument("--gazebo-recording", dest="gazebo_recording", action="store_true", default=True)
@@ -419,23 +419,23 @@ def build_arg_parser():
     parser.add_argument("--goal-tolerance", type=float, default=0.9)
     parser.add_argument("--frame-id", default="odom")
     parser.add_argument("--goal-x", type=float, default=10.0)
-    parser.add_argument("--goal-y", type=float, default=7.0)
+    parser.add_argument("--goal-y", type=float, default=0.0)
     parser.add_argument("--goal-yaw", type=float, default=0.0)
 
     parser.add_argument("--output-dir", default="/home/glab/scope_eval")
-    parser.add_argument("--method", default="so_scope_dwa")
-    parser.add_argument("--env", default="test1")
+    parser.add_argument("--method", default="otter_dwa")
+    parser.add_argument("--env", default="test5")
     parser.add_argument("--summary-name", default="summary.csv")
     parser.add_argument("--bag-name-format", default="trial_%03d.bag")
 
     parser.add_argument("--move-base-action", default="/move_base")
     parser.add_argument("--odom-topic", default="/odom")
-    parser.add_argument("--global-plan-time-topic", default="/move_base/NavfnROS/planning_time_ms")
+    parser.add_argument("--global-plan-time-topic", default="/move_base/TemporalRiskAwarePlanner/planning_time_ms")
     parser.add_argument("--collision-topic", default="/mobile_base/events/bumper", help="Empty string disables collision checking.")
 
     parser.add_argument("--check-rate", type=float, default=10.0)
     parser.add_argument("--max-odom-step", type=float, default=1.0)
-    parser.add_argument("--trial-gap-sec", type=float, default=3.0)
+    parser.add_argument("--trial-gap-sec", type=float, default=5.0)
 
     parser.add_argument("--use-sim-time", dest="use_sim_time", action="store_true", default=True)
 
