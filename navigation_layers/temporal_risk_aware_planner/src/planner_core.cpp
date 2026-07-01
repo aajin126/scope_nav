@@ -97,7 +97,7 @@ TemporalRiskAwarePlanner::TemporalRiskAwarePlanner() :
         costmap_(NULL), initialized_(false), allow_unknown_(true),
         p_calc_(NULL), planner_(NULL), path_maker_(NULL), orientation_filter_(NULL),
         potential_array_(NULL), has_global_goal_(false), has_voxgrid_(false), 
-        current_robot_speed_(0.0), lookahead_dist_(4.0), global_goal_near_dist_(1.5), goal_tolerance_(0.2) {
+        current_robot_speed_(0.0), lookahead_dist_(5.0), global_goal_near_dist_(1.5), goal_tolerance_(0.2) {
 }
 
 TemporalRiskAwarePlanner::TemporalRiskAwarePlanner(std::string name, costmap_2d::Costmap2D* costmap, std::string frame_id) :
@@ -306,7 +306,7 @@ bool TemporalRiskAwarePlanner::makePlan(const geometry_msgs::PoseStamped& start,
     {
         double prev_risk = evalTemporalRisk(previous_subpath_);
 
-        if (prev_risk < 4.0)
+        if (prev_risk < 2.0)
         {
             geometry_msgs::PoseStamped nearest_endpoint;
 
@@ -870,8 +870,8 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
     int goal_line_half_length_cells =
         std::min(
-            static_cast<int>(0.6 * dist_to_goal / resolution),
-            static_cast<int>(0.055 * map_size)
+            static_cast<int>(0.3 * dist_to_goal / resolution),
+            static_cast<int>(0.036 * map_size)
         ) - 2;
 
     goal_line_half_length_cells = std::max(1, goal_line_half_length_cells);
@@ -956,7 +956,7 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
     local_goal_line.clear();
     for (const auto& segment : safe_segments) {
-        if (segment.size() < 2) continue;
+        if (segment.size() < 6) continue;
 
         for (size_t i = 1; i < segment.size(); ++i) {
             local_goal_line.push_back(segment[i - 1]);
@@ -965,18 +965,20 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
     }
 
     // 5. Uniformly sample endpoints based on segment length from each obstacle-free safe segment
-    const int min_segment_size = 3;
+    const int min_segment_size = 6;
     const int cells_per_sample = 20;
     const int max_samples_per_segment = 4;
 
     for (const auto& segment : safe_segments) {
-        if (segment.size() < min_segment_size) continue;
 
-        int samples_per_segment =
-            static_cast<int>(segment.size()) / cells_per_sample;
+        int samples_per_segment = static_cast<int>(segment.size()) / cells_per_sample;
 
-        samples_per_segment =
-            std::max(1, std::min(max_samples_per_segment, samples_per_segment));
+        samples_per_segment = std::max(1, std::min(max_samples_per_segment, samples_per_segment));
+
+        if (samples_per_segment == 2)
+        {
+            samples_per_segment = 3;
+        }
 
         if (samples_per_segment == 1) {
             endpoints.push_back(segment[segment.size() / 2]);
@@ -996,11 +998,14 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
 double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const
 {
-    // ------------------------------------------------------------
-    // 0. Initial Checks & Data Validation
-    // ------------------------------------------------------------
-    if (path.empty()) return 1e9;
-    if (!has_voxgrid_) return 0.0;
+    // 1. Initial Checks & Data Validation
+    if (path.empty()) {
+        return 1e9;
+    }
+
+    if (!has_voxgrid_) {
+        return 0.0;
+    }
 
     const int width  = static_cast<int>(latest_voxgrid_.width);
     const int height = static_cast<int>(latest_voxgrid_.height);
@@ -1013,252 +1018,378 @@ double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msg
 
     const size_t slice_size = static_cast<size_t>(width) * static_cast<size_t>(height);
     const size_t expected_size = slice_size * static_cast<size_t>(depth);
-    if (latest_voxgrid_.data.size() < expected_size) return 0.0;
 
-    // ------------------------------------------------------------
-    // Parameters (Tuned for Simple & Robust Tracking)
-    // ------------------------------------------------------------
+    if (latest_voxgrid_.data.size() < expected_size) {
+        return 0.0;
+    }
+
+    // 2. Parameters
     const double speed = std::max(current_robot_speed_, 0.1);
     const size_t sample_stride = 3;
-    const int spatial_radius = 1;          
-    const double risk_threshold = 0.30;    
-    const int temporal_window_steps = 4;   
-    const int min_event_length = 2;        
-    
-    // Static filter: Ignore obstacles persisting > 80% of prediction time
-    const int static_duration_threshold = static_cast<int>(depth * 0.8); 
     
     // Weights
-    const double w_arrival = 2.0;
-    const double w_temporal_motion = 7.0;
-    const double alpha_length = 1.0;       
+    const double w_now = 1.0;
+    const double w_overlap = 2.0;
+    const double w_motion = 5.0; 
 
-    // Helper Lambdas
+    // 3. Helper Lambdas
     auto clampTimeIndex = [&](int t_idx) -> int {
         return std::max(0, std::min(t_idx, depth - 1));
     };
 
-    auto getRiskAt = [&](int x, int y, int t) -> double {
-        if (x < 0 || y < 0 || x >= width || y >= height) return 0.0;
-        t = clampTimeIndex(t);
-        const size_t index = static_cast<size_t>(t) * slice_size + static_cast<size_t>(y) * width + static_cast<size_t>(x);
-        if (index >= latest_voxgrid_.data.size()) return 0.0;
+    auto getRiskAt = [&](int x_idx, int y_idx, int t_idx) -> double {
+        if (x_idx < 0 || y_idx < 0 || x_idx >= width || y_idx >= height) {
+            return 0.0;
+        }
+        t_idx = clampTimeIndex(t_idx);
+        const size_t index = static_cast<size_t>(t_idx) * slice_size +
+                             static_cast<size_t>(y_idx) * static_cast<size_t>(width) +
+                             static_cast<size_t>(x_idx);
+
+        if (index >= latest_voxgrid_.data.size()) {
+            return 0.0;
+        }
         return static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
     };
 
-    auto getSpatialKernelMax = [&](int x, int y, int t) -> double {
-        double max_risk = 0.0;
-        t = clampTimeIndex(t);
-        for (int dy = -spatial_radius; dy <= spatial_radius; ++dy) {
-            for (int dx = -spatial_radius; dx <= spatial_radius; ++dx) {
-                max_risk = std::max(max_risk, getRiskAt(x + dx, y + dy, t));
-            }
-        }
-        return max_risk;
+    auto worldToVoxIndex = [&](double wx, double wy, int& x_idx, int& y_idx) -> bool {
+        x_idx = static_cast<int>(std::floor((wx - latest_voxgrid_.origin.x) / latest_voxgrid_.dl));
+        y_idx = static_cast<int>(std::floor((wy - latest_voxgrid_.origin.y) / latest_voxgrid_.dl));
+        return !(x_idx < 0 || y_idx < 0 || x_idx >= width || y_idx >= height);
     };
 
-    auto worldToVoxIndex = [&](double wx, double wy, int& x, int& y) -> bool {
-        x = static_cast<int>(std::floor((wx - latest_voxgrid_.origin.x) / latest_voxgrid_.dl));
-        y = static_cast<int>(std::floor((wy - latest_voxgrid_.origin.y) / latest_voxgrid_.dl));
-        return !(x < 0 || y < 0 || x >= width || y >= height);
-    };
-
-    // ------------------------------------------------------------
-    // Path Sampling
-    // ------------------------------------------------------------
-    struct SamplePoint { size_t path_idx; int x_idx, y_idx; double s, arrival_time; };
-    std::vector<SamplePoint> samples;
+    // 4. Compute Cumulative Distance
     std::vector<double> cumulative_dist(path.size(), 0.0);
-    
     for (size_t i = 1; i < path.size(); ++i) {
         cumulative_dist[i] = cumulative_dist[i - 1] + distance2D(path[i - 1], path[i]);
     }
 
-    for (size_t i = 0; i < path.size(); i += sample_stride) {
-        int x, y;
-        if (!worldToVoxIndex(path[i].pose.position.x, path[i].pose.position.y, x, y)) continue;
-        samples.push_back({i, x, y, cumulative_dist[i], cumulative_dist[i] / speed});
-    }
-
-    if (samples.empty()) return 1e9;
-
-    // ------------------------------------------------------------
-    // Part 1. Continuous Time-Margin Arrival Cost
-    // ------------------------------------------------------------
-    double arrival_cost = 0.0;
+    // 5. Evaluate Path Score
+    double path_score = 0.0;
     bool has_valid_risk = false;
 
-    for (const auto& sp : samples) {
+    bool has_prev_peak = false;
+    double prev_peak_time = 0.0;
+    double prev_cumulative_dist = 0.0;
+
+    for (size_t i = 0; i < path.size(); i += sample_stride) {
+        const double arrival_time = cumulative_dist[i] / speed;
+        int arrival_t_idx = clampTimeIndex(static_cast<int>(std::floor(arrival_time / latest_voxgrid_.dt)));
+
+        int x_idx = 0;
+        int y_idx = 0;
+        if (!worldToVoxIndex(path[i].pose.position.x, path[i].pose.position.y, x_idx, y_idx)) {
+            continue;
+        }
+
+        // 5-1. 현재 도착 시간의 위험도 (r_now)
+        const double r_now = getRiskAt(x_idx, y_idx, arrival_t_idx);
+
+        // 5-2. 해당 공간의 전체 시간대 중 최대 위험도(Peak) 탐색
         double peak_risk = 0.0;
         int peak_t_idx = 0;
-
         for (int tk = 0; tk < depth; ++tk) {
-            double r_curr = getSpatialKernelMax(sp.x_idx, sp.y_idx, tk);
-            if (r_curr > peak_risk) {
-                peak_risk = r_curr;
+            const double r = getRiskAt(x_idx, y_idx, tk);
+            if (r > peak_risk) {
+                peak_risk = r;
                 peak_t_idx = tk;
             }
         }
 
-        if (peak_risk > 0.0) {
-            has_valid_risk = true;
-            double peak_time = static_cast<double>(peak_t_idx) * latest_voxgrid_.dt;
-            double time_margin = std::fabs(sp.arrival_time - peak_time);
-            arrival_cost += (peak_risk / (1.0 + time_margin)); // Continuous overlap penalty
-        }
-    }
+        // 5-3. 시간 마진에 따른 Overlap Cost 계산
+        const double peak_time = static_cast<double>(peak_t_idx) * latest_voxgrid_.dt;
+        const double overlap_cost = peak_risk / (1.0 + std::fabs(arrival_time - peak_time));
 
-    // ------------------------------------------------------------
-    // Part 2. Candidate Extraction with Static-Dynamic Disentanglement
-    // ------------------------------------------------------------
-    struct Candidate { int t_idx; double risk; };
-    std::vector<std::vector<Candidate>> candidates(samples.size());
-
-    for (size_t si = 0; si < samples.size(); ++si) {
-        bool in_segment = false;
-        int segment_start_t = 0;
-        int peak_t_idx = 0;
-        double peak_risk = 0.0;
-
-        for (int tk = 0; tk < depth; ++tk) {
-            double r_curr = getSpatialKernelMax(samples[si].x_idx, samples[si].y_idx, tk);
-            
-            if (r_curr >= risk_threshold) {
-                if (!in_segment) {
-                    in_segment = true;
-                    segment_start_t = tk;
-                    peak_t_idx = tk;
-                    peak_risk = r_curr;
-                } else if (r_curr > peak_risk) {
-                    peak_t_idx = tk;
-                    peak_risk = r_curr;
-                }
-            } else if (in_segment) {
-                // Reject static obstacles (persisting too long)
-                if ((tk - segment_start_t) < static_duration_threshold) {
-                    candidates[si].push_back({peak_t_idx, peak_risk});
-                }
-                in_segment = false;
-                peak_risk = 0.0;
-            }
-        }
-        if (in_segment && (depth - segment_start_t) < static_duration_threshold) {
-            candidates[si].push_back({peak_t_idx, peak_risk});
-        }
-    }
-
-    // ------------------------------------------------------------
-    // Part 3. Tracking with Greedy Nearest-Neighbor (1:1 Matching)
-    // ------------------------------------------------------------
-    struct Track {
-        int last_t_idx;
-        int length;
-        double sum_risk;
-        std::vector<size_t> sample_history;
-        std::vector<int> t_idx_history;
-    };
-
-    std::vector<Track> active_tracks;
-    std::vector<Track> completed_tracks;
-
-    for (size_t si = 0; si < samples.size(); ++si) {
-        std::vector<Track> next_active_tracks;
-        std::vector<bool> is_candidate_used(candidates[si].size(), false);
-
-        // Extend active tracks with the best matching candidate (1:1)
-        for (auto& tr : active_tracks) {
-            int best_ci = -1;
-            int min_dt = temporal_window_steps + 1;
-            double max_risk = -1.0;
-
-            for (int ci = 0; ci < static_cast<int>(candidates[si].size()); ++ci) {
-                if (is_candidate_used[ci]) continue; // Prevent multiple tracks claiming one candidate
-
-                const Candidate& cand = candidates[si][ci];
-                int dt = std::abs(cand.t_idx - tr.last_t_idx);
-
-                if (dt <= temporal_window_steps) {
-                    if (dt < min_dt || (dt == min_dt && cand.risk > max_risk)) {
-                        min_dt = dt;
-                        max_risk = cand.risk;
-                        best_ci = ci;
-                    }
-                }
-            }
-
-            if (best_ci != -1) {
-                tr.last_t_idx = candidates[si][best_ci].t_idx;
-                tr.length += 1;
-                tr.sum_risk += candidates[si][best_ci].risk;
-                tr.sample_history.push_back(si);
-                tr.t_idx_history.push_back(candidates[si][best_ci].t_idx);
-                
-                next_active_tracks.push_back(tr);
-                is_candidate_used[best_ci] = true;
-            } else {
-                if (tr.length >= min_event_length) {
-                    completed_tracks.push_back(tr);
-                }
+        // 5-4. 미시적 기울기를 이용한 Motion Cost 계산 (다가옴/멀어짐)
+        double motion_cost = 0.0;
+        if (has_prev_peak) {
+            const double ds = cumulative_dist[i] - prev_cumulative_dist;
+            if (ds > 1e-3) {
+                const double peak_slope = (peak_time - prev_peak_time) / ds;
+                motion_cost = peak_risk * (-peak_slope);
             }
         }
 
-        // Start new tracks from unused candidates
-        for (int ci = 0; ci < static_cast<int>(candidates[si].size()); ++ci) {
-            if (!is_candidate_used[ci]) {
-                const Candidate& cand = candidates[si][ci];
-                Track tr;
-                tr.last_t_idx = cand.t_idx;
-                tr.length = 1;
-                tr.sum_risk = cand.risk;
-                tr.sample_history = {si};
-                tr.t_idx_history = {cand.t_idx};
-                
-                next_active_tracks.push_back(tr);
-            }
-        }
-        active_tracks.swap(next_active_tracks);
+        // 5-5. 최종 Point Score 합산
+        const double point_score = (w_overlap * overlap_cost) + (w_motion * motion_cost);
+        path_score += point_score;
+
+        // 다음 스텝을 위한 이전 값 업데이트
+        prev_peak_time = peak_time;
+        prev_cumulative_dist = cumulative_dist[i];
+        has_prev_peak = true;
+        has_valid_risk = true;
     }
 
-    for (const auto& tr : active_tracks) {
-        if (tr.length >= min_event_length) completed_tracks.push_back(tr);
+    if (!has_valid_risk) {
+        return 1e9;
     }
 
-    // ------------------------------------------------------------
-    // Part 4. Micro-Slope Integration Cost (Path Integral)
-    // ------------------------------------------------------------
-    double temporal_motion_cost = 0.0;
-
-    for (const auto& tr : completed_tracks) {
-        double track_step_cost_sum = 0.0;
-        double mean_event_risk = tr.sum_risk;
-
-        for (size_t j = 1; j < tr.sample_history.size(); ++j) {
-            size_t prev_s_idx = tr.sample_history[j - 1];
-            size_t curr_s_idx = tr.sample_history[j];
-
-            double ds = samples[curr_s_idx].s - samples[prev_s_idx].s;
-            if (ds <= 1e-3) continue;
-
-            double t_prev = static_cast<double>(tr.t_idx_history[j - 1]) * latest_voxgrid_.dt;
-            double t_curr = static_cast<double>(tr.t_idx_history[j]) * latest_voxgrid_.dt;
-
-            double local_slope = (t_curr - t_prev) / ds;
-            double time_margin = std::fabs(samples[curr_s_idx].arrival_time - t_curr);
-            double margin_weight = 1.0 / (1.0 + time_margin);
-
-            double step_risk = mean_event_risk * margin_weight;
-            track_step_cost_sum += (-step_risk * local_slope);
-        }
-
-        // Soft weight to filter out short track noise
-        double L = static_cast<double>(tr.length);
-        double w_track = 1.0 - std::exp(-alpha_length * (L - 1.0));
-
-        temporal_motion_cost += (track_step_cost_sum * w_track);
-    }
-
-    return (w_arrival * arrival_cost) + (w_temporal_motion * temporal_motion_cost);
+    return path_score;
 }
+
+// double TemporalRiskAwarePlanner::evalTemporalRisk(const std::vector<geometry_msgs::PoseStamped>& path) const
+// {
+//     // ------------------------------------------------------------
+//     // 0. Initial Checks & Data Validation
+//     // ------------------------------------------------------------
+//     if (path.empty()) return 1e9;
+//     if (!has_voxgrid_) return 0.0;
+
+//     const int width  = static_cast<int>(latest_voxgrid_.width);
+//     const int height = static_cast<int>(latest_voxgrid_.height);
+//     const int depth  = static_cast<int>(latest_voxgrid_.depth);
+
+//     if (width <= 0 || height <= 0 || depth <= 0 ||
+//         latest_voxgrid_.dl <= 0.0 || latest_voxgrid_.dt <= 0.0) {
+//         return 0.0;
+//     }
+
+//     const size_t slice_size = static_cast<size_t>(width) * static_cast<size_t>(height);
+//     const size_t expected_size = slice_size * static_cast<size_t>(depth);
+//     if (latest_voxgrid_.data.size() < expected_size) return 0.0;
+
+//     // ------------------------------------------------------------
+//     // Parameters (Tuned for Simple & Robust Tracking)
+//     // ------------------------------------------------------------
+//     const double speed = std::max(current_robot_speed_, 0.1);
+//     const size_t sample_stride = 3;
+//     const int spatial_radius = 1;          
+//     const double risk_threshold = 0.30;    
+//     const int temporal_window_steps = 4;   
+//     const int min_event_length = 2;        
+    
+//     // Static filter: Ignore obstacles persisting > 80% of prediction time
+//     const int static_duration_threshold = static_cast<int>(depth * 0.8); 
+    
+//     // Weights
+//     const double w_arrival = 2.0;
+//     const double w_temporal_motion = 6.0;
+//     const double w_static = 2.0;
+//     const double alpha_length = 1.0;       
+
+//     // Helper Lambdas
+//     auto clampTimeIndex = [&](int t_idx) -> int {
+//         return std::max(0, std::min(t_idx, depth - 1));
+//     };
+
+//     auto getRiskAt = [&](int x, int y, int t) -> double {
+//         if (x < 0 || y < 0 || x >= width || y >= height) return 0.0;
+//         t = clampTimeIndex(t);
+//         const size_t index = static_cast<size_t>(t) * slice_size + static_cast<size_t>(y) * width + static_cast<size_t>(x);
+//         if (index >= latest_voxgrid_.data.size()) return 0.0;
+//         return static_cast<double>(latest_voxgrid_.data[index]) / 255.0;
+//     };
+
+//     auto getSpatialKernelMax = [&](int x, int y, int t) -> double {
+//         double max_risk = 0.0;
+//         t = clampTimeIndex(t);
+//         for (int dy = -spatial_radius; dy <= spatial_radius; ++dy) {
+//             for (int dx = -spatial_radius; dx <= spatial_radius; ++dx) {
+//                 max_risk = std::max(max_risk, getRiskAt(x + dx, y + dy, t));
+//             }
+//         }
+//         return max_risk;
+//     };
+
+//     auto worldToVoxIndex = [&](double wx, double wy, int& x, int& y) -> bool {
+//         x = static_cast<int>(std::floor((wx - latest_voxgrid_.origin.x) / latest_voxgrid_.dl));
+//         y = static_cast<int>(std::floor((wy - latest_voxgrid_.origin.y) / latest_voxgrid_.dl));
+//         return !(x < 0 || y < 0 || x >= width || y >= height);
+//     };
+
+//     // ------------------------------------------------------------
+//     // Path Sampling
+//     // ------------------------------------------------------------
+//     std::vector<SamplePoint> samples;
+//     std::vector<double> cumulative_dist(path.size(), 0.0);
+    
+//     for (size_t i = 1; i < path.size(); ++i) {
+//         cumulative_dist[i] = cumulative_dist[i - 1] + distance2D(path[i - 1], path[i]);
+//     }
+
+//     for (size_t i = 0; i < path.size(); i += sample_stride) {
+//         int x, y;
+//         if (!worldToVoxIndex(path[i].pose.position.x, path[i].pose.position.y, x, y)) continue;
+//         samples.push_back({i, x, y, cumulative_dist[i], cumulative_dist[i] / speed});
+//     }
+
+//     if (samples.empty()) return 1e9;
+
+//     // ------------------------------------------------------------
+//     // Part 1. Continuous Time-Margin Arrival Cost
+//     // ------------------------------------------------------------
+//     double arrival_cost = 0.0;
+
+//     for (const auto& sp : samples) {
+//         double peak_risk = 0.0;
+//         int peak_t_idx = 0;
+
+//         for (int tk = 0; tk < depth; ++tk) {
+//             double r_curr = getSpatialKernelMax(sp.x_idx, sp.y_idx, tk);
+//             if (r_curr > peak_risk) {
+//                 peak_risk = r_curr;
+//                 peak_t_idx = tk;
+//             }
+//         }
+//         double peak_time = static_cast<double>(peak_t_idx) * latest_voxgrid_.dt;
+//         //double time_margin = std::fabs(sp.arrival_time - peak_time);
+//         arrival_cost += peak_time; // Continuous overlap penalty
+//     }
+
+//     // ------------------------------------------------------------
+//     // Part 2. Candidate Extraction with Static-Dynamic Disentanglement
+//     // ------------------------------------------------------------
+//     struct Candidate { int t_idx; double risk; };
+//     std::vector<std::vector<Candidate>> candidates(samples.size());
+//     double static_cost = 0.0;
+//     for (size_t si = 0; si < samples.size(); ++si) {
+//         bool in_segment = false;
+//         int segment_start_t = 0;
+//         int peak_t_idx = 0;
+//         double peak_risk = 0.0;
+
+//         for (int tk = 0; tk < depth-1; ++tk) {
+//             double r_curr = getSpatialKernelMax(samples[si].x_idx, samples[si].y_idx, tk);
+            
+//             if (r_curr >= risk_threshold) {
+//                 if (!in_segment) {
+//                     in_segment = true;
+//                     segment_start_t = tk;
+//                     peak_t_idx = tk;
+//                     peak_risk = r_curr;
+//                 } else if (r_curr > peak_risk) {
+//                     peak_t_idx = tk;
+//                     peak_risk = r_curr;
+//                 }
+//             } 
+//             else if (in_segment) {
+//                 int duration = tk - segment_start_t;
+//                 //candidates[si].push_back({peak_t_idx, peak_risk});
+
+//                 if (duration < static_duration_threshold) {
+//                     candidates[si].push_back({peak_t_idx, peak_risk});
+//                 } else {
+//                     // Static-like obstacle: penalize strongly
+//                     static_cost += peak_risk;
+//                 }
+
+//                 in_segment = false;
+//                 peak_risk = 0.0;
+//             }
+//         }
+//         candidates[si].push_back({peak_t_idx, peak_risk});
+//         // if (in_segment && (depth - segment_start_t) < static_duration_threshold) {
+//         //     candidates[si].push_back({peak_t_idx, peak_risk});
+//         // }
+//     }
+
+//     // ------------------------------------------------------------
+//     // Part 3. Tracking with Greedy Nearest-Neighbor (1:1 Matching)
+//     // ------------------------------------------------------------
+
+//     std::vector<Track> active_tracks;
+//     std::vector<Track> completed_tracks;
+
+//     for (size_t si = 0; si < samples.size(); ++si) {
+//         std::vector<Track> next_active_tracks;
+//         std::vector<bool> is_candidate_used(candidates[si].size(), false);
+
+//         // Extend active tracks with the best matching candidate (1:1)
+//         for (auto& tr : active_tracks) {
+//             int best_ci = -1;
+//             int min_dt = temporal_window_steps + 1;
+//             double max_risk = -1.0;
+
+//             for (int ci = 0; ci < static_cast<int>(candidates[si].size()); ++ci) {
+//                 if (is_candidate_used[ci]) continue; // Prevent multiple tracks claiming one candidate
+
+//                 const Candidate& cand = candidates[si][ci];
+//                 int dt = std::abs(cand.t_idx - tr.last_t_idx);
+
+//                 if (dt <= temporal_window_steps) {
+//                     if (dt < min_dt || (dt == min_dt && cand.risk > max_risk)) {
+//                         min_dt = dt;
+//                         max_risk = cand.risk;
+//                         best_ci = ci;
+//                     }
+//                 }
+//             }
+
+//             if (best_ci != -1) {
+//                 tr.last_t_idx = candidates[si][best_ci].t_idx;
+//                 tr.length += 1;
+//                 tr.sum_risk += candidates[si][best_ci].risk;
+//                 tr.sample_history.push_back(si);
+//                 tr.t_idx_history.push_back(candidates[si][best_ci].t_idx);
+                
+//                 next_active_tracks.push_back(tr);
+//                 is_candidate_used[best_ci] = true;
+//             } else {
+//                 if (tr.length >= min_event_length) {
+//                     completed_tracks.push_back(tr);
+//                 }
+//             }
+//         }
+
+//         // Start new tracks from unused candidates
+//         for (int ci = 0; ci < static_cast<int>(candidates[si].size()); ++ci) {
+//             if (!is_candidate_used[ci]) {
+//                 const Candidate& cand = candidates[si][ci];
+//                 Track tr;
+//                 tr.last_t_idx = cand.t_idx;
+//                 tr.length = 1;
+//                 tr.sum_risk = cand.risk;
+//                 tr.sample_history = {si};
+//                 tr.t_idx_history = {cand.t_idx};
+                
+//                 next_active_tracks.push_back(tr);
+//             }
+//         }
+//         active_tracks.swap(next_active_tracks);
+//     }
+
+//     for (const auto& tr : active_tracks) {
+//         if (tr.length >= min_event_length) completed_tracks.push_back(tr);
+//     }
+
+//     // ------------------------------------------------------------
+//     // Part 4. Micro-Slope Integration Cost (Path Integral)
+//     // ------------------------------------------------------------
+//     double temporal_motion_cost = 0.0;
+
+//     for (const auto& tr : completed_tracks) {
+//         double track_step_cost_sum = 0.0;
+//         double mean_event_risk = tr.sum_risk;
+
+//         for (size_t j = 1; j < tr.sample_history.size(); ++j) {
+//             size_t prev_s_idx = tr.sample_history[j - 1];
+//             size_t curr_s_idx = tr.sample_history[j];
+
+//             double ds = samples[curr_s_idx].s - samples[prev_s_idx].s;
+//             if (ds <= 1e-3) continue;
+
+//             double t_prev = static_cast<double>(tr.t_idx_history[j - 1]) * latest_voxgrid_.dt;
+//             double t_curr = static_cast<double>(tr.t_idx_history[j]) * latest_voxgrid_.dt;
+
+//             double local_slope = (t_curr - t_prev) / ds;
+//             double time_margin = std::fabs(samples[curr_s_idx].arrival_time - t_curr);
+//             double margin_weight = 1.0 / (1.0 + time_margin);
+
+//             double step_risk = mean_event_risk * margin_weight;
+//             track_step_cost_sum += (-step_risk * local_slope);
+//         }
+
+//         // Soft weight to filter out short track noise
+//         double L = static_cast<double>(tr.length);
+//         double w_track = 1.0 - std::exp(-alpha_length * (L - 1.0));
+
+//         temporal_motion_cost += (track_step_cost_sum * w_track);
+//     }
+//     //publishTrackMarkers(completed_tracks, samples, path);
+
+//     return (w_arrival * arrival_cost) + (w_temporal_motion * temporal_motion_cost) + (w_static * static_cost);
+// }
 
 std::vector<std::pair<int, int>> TemporalRiskAwarePlanner::Bresenham(const std::pair<int, int>& p1, const std::pair<int, int>& p2)
 {
@@ -1550,74 +1681,77 @@ void TemporalRiskAwarePlanner::voxGridCallback(const vox_msgs::VoxGrid::ConstPtr
     has_voxgrid_ = !latest_voxgrid_.data.empty();
 }
 
-void TemporalRiskAwarePlanner::publishTrackMarkers(
-    const std::vector<Track>& tracks, 
-    const std::vector<SamplePoint>& samples, 
-    const std::vector<geometry_msgs::PoseStamped>& path) const 
+void TemporalRiskAwarePlanner::publishTrackMarkers(const std::vector<Track>& completed_tracks,
+                                                   const std::vector<SamplePoint>& samples,
+                                                   const std::vector<geometry_msgs::PoseStamped>& path) const
 {
     visualization_msgs::MarkerArray marker_array;
-    
+    std::string frame_id = path.front().header.frame_id;
+    ros::Time current_time = ros::Time::now();
+
+    // Reset markers
     visualization_msgs::Marker delete_marker;
     delete_marker.action = visualization_msgs::Marker::DELETEALL;
     marker_array.markers.push_back(delete_marker);
 
-    int marker_id = 0;
+    // Node Marker (Candidate Points)
+    visualization_msgs::Marker nodes_marker;
+    nodes_marker.header.frame_id = frame_id;
+    nodes_marker.header.stamp = current_time;
+    nodes_marker.ns = "track_nodes";
+    nodes_marker.id = 0;
+    nodes_marker.type = visualization_msgs::Marker::SPHERE_LIST;
+    nodes_marker.action = visualization_msgs::Marker::ADD;
+    nodes_marker.scale.x = 0.15; nodes_marker.scale.y = 0.15; nodes_marker.scale.z = 0.15;
+    nodes_marker.color.r = 1.0; nodes_marker.color.g = 0.8; nodes_marker.color.b = 0.0; nodes_marker.color.a = 0.9;
+    nodes_marker.pose.orientation.w = 1.0;
 
-    for (size_t i = 0; i < tracks.size(); ++i) {
-        const auto& tr = tracks[i];
+    // Edge Marker (Temporal Connections)
+    visualization_msgs::Marker edges_marker;
+    edges_marker.header.frame_id = frame_id;
+    edges_marker.header.stamp = current_time;
+    edges_marker.ns = "track_edges";
+    edges_marker.id = 1;
+    edges_marker.type = visualization_msgs::Marker::LINE_LIST;
+    edges_marker.action = visualization_msgs::Marker::ADD;
+    edges_marker.scale.x = 0.05;
+    edges_marker.color.r = 0.0; edges_marker.color.g = 1.0; edges_marker.color.b = 0.8; edges_marker.color.a = 0.7;
+    edges_marker.pose.orientation.w = 1.0;
 
-        visualization_msgs::Marker points_marker;
-        points_marker.header.frame_id = "odom";
-        points_marker.header.stamp = ros::Time::now();
-        points_marker.ns = "active_track_points";
-        points_marker.id = marker_id++;
-        points_marker.type = visualization_msgs::Marker::SPHERE_LIST;
-        points_marker.action = visualization_msgs::Marker::ADD;
-        
-        points_marker.scale.x = 0.2; 
-        points_marker.scale.y = 0.2;
-        points_marker.scale.z = 0.2;
-        
-        points_marker.color.r = 0.0; 
-        points_marker.color.g = 0.0;
-        points_marker.color.b = 1.0;
-        points_marker.color.a = 1.0;
+    const double z_time_scale = 1.0;
 
-        visualization_msgs::Marker line_marker;
-        line_marker.header = points_marker.header;
-        line_marker.ns = "active_track_lines";
-        line_marker.id = marker_id++;
-        line_marker.type = visualization_msgs::Marker::LINE_STRIP;
-        line_marker.action = visualization_msgs::Marker::ADD;
-        
-        line_marker.scale.x = 0.05; 
-        
-        line_marker.color.r = 0.0; 
-        line_marker.color.g = 0.0;
-        line_marker.color.b = 1.0;
-        line_marker.color.a = 0.8;
-
+    for (const auto& tr : completed_tracks) {
         for (size_t j = 0; j < tr.sample_history.size(); ++j) {
             size_t s_idx = tr.sample_history[j];
-            int t_idx = tr.t_idx_history[j];
+            size_t path_idx = samples[s_idx].path_idx;
             
-            size_t original_path_idx = samples[s_idx].path_idx;
+            geometry_msgs::Point pt;
+            pt.x = path[path_idx].pose.position.x;
+            pt.y = path[path_idx].pose.position.y;
+            pt.z = static_cast<double>(tr.t_idx_history[j]) * latest_voxgrid_.dt * z_time_scale;
+            
+            nodes_marker.points.push_back(pt);
 
-            geometry_msgs::Point p;
-            p.x = path[original_path_idx].pose.position.x;
-            p.y = path[original_path_idx].pose.position.y;
+            if (j > 0) {
+                size_t prev_s_idx = tr.sample_history[j - 1];
+                size_t prev_path_idx = samples[prev_s_idx].path_idx;
+                
+                geometry_msgs::Point prev_pt;
+                prev_pt.x = path[prev_path_idx].pose.position.x;
+                prev_pt.y = path[prev_path_idx].pose.position.y;
+                prev_pt.z = static_cast<double>(tr.t_idx_history[j - 1]) * latest_voxgrid_.dt * z_time_scale;
 
-            p.z = static_cast<double>(t_idx) * 0.1; 
-
-            points_marker.points.push_back(p);
-            line_marker.points.push_back(p);
+                edges_marker.points.push_back(prev_pt);
+                edges_marker.points.push_back(pt);
+            }
         }
-
-        marker_array.markers.push_back(points_marker);
-        marker_array.markers.push_back(line_marker);
     }
 
-    planning_track_marker_pub_.publish(marker_array);
+    if (!nodes_marker.points.empty()) {
+        marker_array.markers.push_back(nodes_marker);
+        marker_array.markers.push_back(edges_marker);
+        planning_track_marker_pub_.publish(marker_array);
+    }
 }
 
 void TemporalRiskAwarePlanner::publishPlanningDebugMarkers(

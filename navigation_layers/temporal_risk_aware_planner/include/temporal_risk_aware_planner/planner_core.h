@@ -183,6 +183,17 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
 
         bool makePlanService(nav_msgs::GetPlan::Request& req, nav_msgs::GetPlan::Response& resp);
 
+        // struct Track {
+        //     int start_t_idx;
+        //     int last_t_idx;
+        //     size_t start_sample_idx;
+        //     size_t last_sample_idx;
+        //     int length;
+        //     double sum_risk;
+        //     std::vector<size_t> sample_history;
+        //     std::vector<int> t_idx_history;
+        // };
+
     protected:
 
         /**
@@ -198,20 +209,17 @@ class TemporalRiskAwarePlanner : public nav_core::BaseGlobalPlanner {
         bool worldToMap(double wx, double wy, double& mx, double& my);
         void clearRobotCell(const geometry_msgs::PoseStamped& global_pose, unsigned int mx, unsigned int my);
         void publishPotential(float* potential);
-        struct PathCandidate {
-            std::vector<geometry_msgs::PoseStamped> path;
-            int homotopy_id = -1;
-            double temporal_risk_score = 0.0;
-        };
         struct Track {
-            int start_t_idx;
             int last_t_idx;
-            size_t start_sample_idx;
-            size_t last_sample_idx;
             int length;
             double sum_risk;
             std::vector<size_t> sample_history;
             std::vector<int> t_idx_history;
+        };
+        struct PathCandidate {
+            std::vector<geometry_msgs::PoseStamped> path;
+            int homotopy_id = -1;
+            double temporal_risk_score = 0.0;
         };
         struct SamplePoint {
             size_t path_idx;

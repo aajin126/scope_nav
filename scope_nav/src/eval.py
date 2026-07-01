@@ -408,8 +408,8 @@ def build_arg_parser():
     parser.add_argument("--launch-package", default="scope_nav")
     parser.add_argument("--launch-file", default="dwa_ldm_guidance_planner.launch")
     parser.add_argument("--launch-arg", dest="launch_args", action="append", default=[])
-    parser.add_argument("--startup-wait-sec", type=float, default=9.0)
-    parser.add_argument("--shutdown-wait-sec", type=float, default=6.0)
+    parser.add_argument("--startup-wait-sec", type=float, default=10.0)
+    parser.add_argument("--shutdown-wait-sec", type=float, default=8.0)
 
     parser.add_argument("--gazebo-recording", dest="gazebo_recording", action="store_true", default=True)
     parser.add_argument("--gazebo-record-dir", default="gazebo_log")
