@@ -14,5 +14,3 @@ wandb/
 #bash files
 *.sh
 *.pyc
-bag.launch
-eval.py
