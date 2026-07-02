@@ -194,39 +194,40 @@ class ScopeCostmap:
             ##
             ## final prediction map: transform to the current robot frame
             ##
-            if self.tf_listener is None:
-                import tf
-                self.tf_listener = tf.TransformListener()
+            # if self.tf_listener is None:
+            #     import tf
+            #     self.tf_listener = tf.TransformListener()
 
-            try:
-                (trans, rot) = self.tf_listener.lookupTransform('/odom', '/base_footprint', rospy.Time(0))
-                (_, _, theta) = tft.euler_from_quaternion(rot)
-                curr_pos_tf = np.array([trans[0], trans[1], theta], dtype=np.float32)
-            except Exception as e:
-                rospy.logwarn('TF lookup failed, fallback to last pose: %s', str(e))
-                curr_pos_tf = self.curr_pos.copy()
+            # try:
+            #     (trans, rot) = self.tf_listener.lookupTransform('/odom', '/base_footprint', rospy.Time(0))
+            #     (_, _, theta) = tft.euler_from_quaternion(rot)
+            #     curr_pos_tf = np.array([trans[0], trans[1], theta], dtype=np.float32)
+            # except Exception as e:
+            #     rospy.logwarn('TF lookup failed, fallback to last pose: %s', str(e))
+            #     curr_pos_tf = self.curr_pos.copy()
 
-            curr_pos_t = torch.from_numpy(curr_pos_tf).float().to(device).view(1, 1, 3)
-            reprojected_maps = []
-            for t in range(SEQ_LEN):
-                pos_origin_t = pos_origin_list[t] 
-                x_now_t, y_now_t, th_now_t = input_gridMap.robot_coordinate_transform(curr_pos_t, pos_origin_t)
-                x_now_t = x_now_t[:, 0]
-                y_now_t = y_now_t[:, 0]
-                th_now_t = th_now_t[:, 0]
-                fin_map_t, _ = reprojection(
-                    prediction_maps[t:t+1],
-                    x_now_t,
-                    y_now_t,
-                    th_now_t,
-                    MAP_X_LIMIT,
-                    MAP_Y_LIMIT
-                )
-                reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))
+            # curr_pos_t = torch.from_numpy(curr_pos_tf).float().to(device).view(1, 1, 3)
+            # reprojected_maps = []
+            # for t in range(SEQ_LEN):
+            #     pos_origin_t = pos_origin_list[t] 
+            #     x_now_t, y_now_t, th_now_t = input_gridMap.robot_coordinate_transform(curr_pos_t, pos_origin_t)
+            #     x_now_t = x_now_t[:, 0]
+            #     y_now_t = y_now_t[:, 0]
+            #     th_now_t = th_now_t[:, 0]
+            #     fin_map_t, _ = reprojection(
+            #         prediction_maps[t:t+1],
+            #         x_now_t,
+            #         y_now_t,
+            #         th_now_t,
+            #         MAP_X_LIMIT,
+            #         MAP_Y_LIMIT
+            #     )
+            #     reprojected_maps.append(fin_map_t.squeeze(0).squeeze(0))
 
-            reprojected_maps = torch.stack(reprojected_maps, dim=0)
-            merged_prediction_map = torch.amax(reprojected_maps[:SEQ_LEN], dim=0, keepdim=True)
-            merged_prediction_map = merged_prediction_map.unsqueeze(0)
+            # reprojected_maps = torch.stack(reprojected_maps, dim=0)
+            # merged_prediction_map = torch.amax(reprojected_maps[:SEQ_LEN], dim=0, keepdim=True)
+            # merged_prediction_map = merged_prediction_map.unsqueeze(0)
+            merged_prediction_map = torch.amax(prediction_maps[:SEQ_LEN], dim=0, keepdim=True)
 
             predictions = merged_prediction_map.clone()
             pred_entropy = torch.zeros((1, 1, IMG_SIZE, IMG_SIZE)).to(device)
