@@ -977,7 +977,7 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
         if (samples_per_segment == 2)
         {
-            samples_per_segment = 3;
+            samples_per_segment = 1;
         }
 
         if (samples_per_segment == 1) {

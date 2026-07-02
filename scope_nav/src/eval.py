@@ -400,7 +400,7 @@ def run_parent(args, original_argv):
 
 
 def build_arg_parser():
-    parser = argparse.ArgumentParser(description="Navigation evaluator with per-trial roslaunch restart")
+    parser = argparse.ArgumentParser(description="Navigation evaluator")
 
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--trial", type=int, default=0, help=argparse.SUPPRESS)
