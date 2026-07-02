@@ -406,7 +406,7 @@ def build_arg_parser():
     parser.add_argument("--trial", type=int, default=0, help=argparse.SUPPRESS)
 
     parser.add_argument("--launch-package", default="scope_nav")
-    parser.add_argument("--launch-file", default="dwa_so_scope_pu_nav.launch")
+    parser.add_argument("--launch-file", default="so_scope_test3.launch")
     parser.add_argument("--launch-arg", dest="launch_args", action="append", default=[])
     parser.add_argument("--startup-wait-sec", type=float, default=10.0)
     parser.add_argument("--shutdown-wait-sec", type=float, default=8.0)
@@ -415,11 +415,11 @@ def build_arg_parser():
     parser.add_argument("--gazebo-record-dir", default="gazebo_log")
 
     parser.add_argument("--n-trials", type=int, default=50)
-    parser.add_argument("--timeout-sec", type=float, default=120.0)
+    parser.add_argument("--timeout-sec", type=float, default=50.0)
     parser.add_argument("--goal-tolerance", type=float, default=0.9)
     parser.add_argument("--frame-id", default="odom")
     parser.add_argument("--goal-x", type=float, default=10.0)
-    parser.add_argument("--goal-y", type=float, default=0.0)
+    parser.add_argument("--goal-y", type=float, default=2.5)
     parser.add_argument("--goal-yaw", type=float, default=0.0)
 
     parser.add_argument("--output-dir", default="/home/glab/scope_eval")

@@ -1,0 +1,61 @@
+<launch>
+  <arg name="gui" default="true" doc="Bring up the Gazebo graphical interface"/>
+  <arg name="statistics_file"   default="$(find scope_nav)/src/model/truncnorm_skewcauchy_statistics_tables/truncnorm_skewcauchy_entropy_pred_time_6.npy"/>
+  <arg name="model_file"   default="$(find scope_nav)/src/model/so_scope/model.pth"/>
+  <arg name="rviz" default="true"/> 
+  <arg name="debug_save" value="true"/>
+  <arg name="gazebo_recording" default="false"/>
+  <arg name="gazebo_record_args" default=""/>
+  <arg name="bag_path" default="/tmp/trial.bag"/>
+
+  <!-- test5 -->
+  <arg name="world_file" default="test5" />
+  <arg name="scene_file" default="$(find sim_arena)/worlds/test/$(arg world_file)/scenarios/default.xml"/>  
+  <arg name="world_name" default="$(find sim_arena)/worlds/test/$(arg world_file)/worlds/$(arg world_file).world"/>
+  <arg name="map_file" default="$(find sim_arena)/worlds/test/$(arg world_file)/map/map.yaml"/>
+  <arg name="pose_initial_x" default="-14.0"/> 
+  <arg name="pose_initial_y" default="0.0"/>
+  <arg name="pose_initial_theta" default="0.0"/>
+  <arg name="initial_pose_x" default="-14.0"/>
+  <arg name="initial_pose_y" default="0.0"/>
+  <arg name="initial_pose_a" default="0.0"/>
+
+
+  <!-- Pedsim Gazebo -->
+  <include file="$(find pedsim_simulator)/launch/robot.launch">
+    <arg name="scene_file" value="$(arg scene_file)"/>
+    <arg name="world_name" value="$(arg world_name)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="gazebo_recording" value="$(arg gazebo_recording)"/>
+    <arg name="gazebo_record_args" value="$(arg gazebo_record_args)"/>
+    <arg name="pose_initial_x" value="$(arg pose_initial_x)"/> 
+    <arg name="pose_initial_y" value="$(arg pose_initial_y)"/>
+    <arg name="pose_initial_theta" value="$(arg pose_initial_theta)"/>
+  </include>
+
+  <!-- Move base -->
+  <include file="$(find scope_nav)/launch/includes/move_base.launch.xml"/>
+
+  <!-- Goal visualization -->
+  <node pkg="scope_nav" name="goal_visualize" type="goal_visualize.py" output="screen" />
+
+  <!-- SCOPE Costmap Publisher -->
+  <include file="$(find scope_nav)/launch/scope_costmap_pub.launch">
+    <arg name="model_file" value="$(arg model_file)"/>
+  </include>
+
+  <!-- Pedestrian Publisher -->
+  <node name="track_ped_pub" pkg="scope_nav" type="track_ped_pub.py" output="screen"/>
+
+  <!-- VoxGrid Marker Visualization Node -->
+  <node pkg="scope_nav" type="vox_viz.py" name="vox_viz" output="screen"/>
+
+  <!-- Rviz -->
+  <include file="$(find scope_nav)/launch/view_navigation.launch" if="$(arg rviz)"/>
+
+  <!-- Bag recording -->
+  <include file="$(find scope_nav)/launch/bag.launch">
+    <arg name="bag_path" value="$(arg bag_path)"/>
+  </include>
+
+</launch>
