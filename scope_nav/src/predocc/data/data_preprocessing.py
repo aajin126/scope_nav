@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 from predocc.data.local_occ_grid_map import LocalMap
 from .dataloader import PredOccDataset
 
-POINTS = 1080   # number of lidar points
+POINTS = 811   # number of lidar points
 IMG_SIZE = 64
 SEQ_LEN = 10
 
@@ -62,7 +62,7 @@ def preprocess_batch(batch, device=None):
     )
 
     future_distances = scans[:, SEQ_LEN:] # get future 10 frames
-    future_angles = torch.linspace(-(135 * np.pi / 180), 135 * np.pi / 180, future_distances.shape[-1], device=scans.device)
+    future_angles = torch.linspace(-(100 * np.pi / 180), 100 * np.pi / 180, future_distances.shape[-1], device=scans.device)
 
     future_distances_x, future_distances_y = mask_gridMap.lidar_scan_xy(
         future_distances, future_angles, x_future_odom, y_future_odom, theta_future_odom
@@ -88,7 +88,7 @@ def preprocess_batch(batch, device=None):
 
     distances = scans[:, :SEQ_LEN]
     angles = torch.linspace(
-        -(135 * np.pi / 180), 135 * np.pi / 180, distances.shape[-1], device=scans.device
+        -(100 * np.pi / 180), 100 * np.pi / 180, distances.shape[-1], device=scans.device
     )
 
     distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
@@ -151,8 +151,8 @@ def preprocess_batch_test(batch, device=None):
     theta_odom = torch.zeros(B, SEQ_LEN).to(device)
     # Lidar measurements:
     distances = scans[:,SEQ_LEN:]
-    # the angles of lidar scan: -135 ~ 135 degree
-    angles = torch.linspace(-(135*np.pi/180), 135*np.pi/180, distances.shape[-1]).to(device)
+    # the angles of lidar scan: -100 ~ 100 degree
+    angles = torch.linspace(-(100*np.pi/180), 100*np.pi/180, distances.shape[-1]).to(device)
     # Lidar measurements in X-Y plane: transform to the predicted robot reference frame
     distances_x, distances_y = mask_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
     # discretize to binary maps:
@@ -176,7 +176,7 @@ def preprocess_batch_test(batch, device=None):
 
     distances = scans[:, :SEQ_LEN]
     angles = torch.linspace(
-        -(135 * np.pi / 180), 135 * np.pi / 180, distances.shape[-1], device=scans.device)
+        -(100 * np.pi / 180), 100 * np.pi / 180, distances.shape[-1], device=scans.device)
 
     distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
         

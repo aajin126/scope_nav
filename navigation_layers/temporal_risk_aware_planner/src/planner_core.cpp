@@ -880,8 +880,8 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
     int goal_line_half_length_cells =
         std::min(
-            static_cast<int>(0.3 * dist_to_goal / resolution),
-            static_cast<int>(0.036 * map_size)
+            static_cast<int>(1.0 * dist_to_goal / resolution),
+            static_cast<int>(0.36 * map_size)
         ) - 2;
 
     goal_line_half_length_cells = std::max(1, goal_line_half_length_cells);

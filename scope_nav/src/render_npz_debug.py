@@ -59,9 +59,9 @@ def build_history_binary_maps(scans, positions, velocities, device="cpu"):
     pos = pos_t[:, :T]  # (1,T,3)
     x_odom, y_odom, theta_odom = gridMap.robot_coordinate_transform(pos, pos_origin)
 
-    distances = scans_t[:, :T]   # (1,T,1080)
+    distances = scans_t[:, :T]   # (1,T,811)
 
-    angles = torch.linspace(-(135*np.pi/180), 135*np.pi/180, distances.shape[-1]).to(device)
+    angles = torch.linspace(-(100*np.pi/180), 100*np.pi/180, distances.shape[-1]).to(device)
     dx, dy = gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
 
     # discretize -> (1,T,H,W)

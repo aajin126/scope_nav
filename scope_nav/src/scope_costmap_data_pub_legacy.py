@@ -59,7 +59,7 @@ class ScopeCostmap:
     # Constructor
     def __init__(self):
         # initialize data:  
-        self.scan_ranges = np.zeros(1080)
+        self.scan_ranges = np.zeros(811)
         self.curr_vel = np.zeros(2)
         self.curr_pos = np.zeros(3)
         self.curr_odom = np.zeros(3)
@@ -169,8 +169,8 @@ class ScopeCostmap:
             x_odom, y_odom, theta_odom = input_gridMap.robot_coordinate_transform(pos, pos_origin)
             # Lidar measurements:
             distances = scans[:,:SEQ_LEN]
-            # the angles of lidar scan: -135 ~ 135 degree
-            angles = torch.linspace(-(135*np.pi/180), 135*np.pi/180, distances.shape[-1]).to(device)
+            # the angles of lidar scan: -100 ~ 100 degree
+            angles = torch.linspace(-(100*np.pi/180), 100*np.pi/180, distances.shape[-1]).to(device)
             # Lidar measurements in X-Y plane: transform to the predicted robot reference frame
             distances_x, distances_y = input_gridMap.lidar_scan_xy(distances, angles, x_odom, y_odom, theta_odom)
             # discretize to binary maps:

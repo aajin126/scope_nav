@@ -1,0 +1,58 @@
+<!-- -->
+<launch>
+    <arg name="bag_path" default="/tmp/trial.bag"/>
+    <node pkg="rosbag" type="record" name="rosbag" 
+    args="-O $(arg bag_path)
+
+/camera/color/image_raw
+/former_base_controller/cmd_vel
+/former_base_controller/odom
+/goal_markers
+/imu/data
+/initialpose
+/joint_states
+/left_ultrasonic
+/local_map
+/local_map_updates
+/move_base/DWAPlannerROS/global_plan
+/move_base/DWAPlannerROS/local_plan
+/move_base/NavfnROS/plan
+/move_base/cmd_vel
+/move_base/current_goal
+/move_base/global_costmap/costmap
+/move_base/global_costmap/costmap_updates
+/move_base/global_costmap/footprint
+/move_base/goal
+/move_base/local_costmap/costmap
+/move_base/local_costmap/costmap_updates
+/move_base/local_costmap/footprint
+/move_base/local_costmap/inflation_layer/parameter_descriptions
+/move_base/local_costmap/inflation_layer/parameter_updates
+/move_base/local_costmap/obstacle_layer/clearing_endpoints
+/move_base/local_costmap/obstacle_layer/parameter_descriptions
+/move_base/local_costmap/obstacle_layer/parameter_updates
+/move_base/local_costmap/parameter_descriptions
+/move_base/local_costmap/parameter_updates
+/move_base/local_costmap/scope_prediction_layer/parameter_descriptions
+/move_base/local_costmap/scope_prediction_layer/parameter_updates
+/move_base/recovery_status
+/move_base_simple/goal
+/odometry/filtered
+/prediction_img
+/right_ultrasonic
+/rosout
+/rosout_agg
+/scan
+/scope_input_data
+/scope_output_data
+/scope_prediction
+/scope_uncertainty
+/set_pose
+/temporal_grid_local_map
+/tf
+/tf_static
+    "
+    />
+
+
+</launch>
