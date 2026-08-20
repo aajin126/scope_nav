@@ -261,12 +261,12 @@ Visualization Manager:
       Class: rviz/Map
       Color Scheme: map
       Draw Behind: false
-      Enabled: false
+      Enabled: true
       Name: Map
-      Topic: /map
+      Topic: /move_base/global_costmap/costmap
       Unreliable: false
       Use Timestamp: false
-      Value: false
+      Value: true
     - Alpha: 0.699999988079071
       Class: rviz/Map
       Color Scheme: costmap
@@ -322,13 +322,13 @@ Visualization Manager:
       Unreliable: false
       Value: false
       Visibility:
-        "": true
         Full Plan: true
         Grid: true
         Image: true
         LaserScan: true
         Map: true
         Marker: true
+        MarkerArray: true
         Path: true
         PointCloud2: true
         Polygon: true
@@ -496,6 +496,7 @@ Visualization Manager:
       Name: MarkerArray
       Namespaces:
         end_points: true
+        local_goal_line: true
         selected_path: true
         sub_path_costs: true
         sub_paths: true
@@ -528,7 +529,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 63.343040466308594
+      Distance: 50.957637786865234
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -536,9 +537,9 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 0.23934154212474823
-        Y: 0.1294015645980835
-        Z: -2.0004796981811523
+        X: -14.495091438293457
+        Y: -3.4246022701263428
+        Z: -1.9107179641723633
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
@@ -546,7 +547,7 @@ Visualization Manager:
       Near Clip Distance: 0.009999999776482582
       Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 3.3785622119903564
+      Yaw: 0.12037777155637741
     Saved: ~
 Window Geometry:
   Camera:

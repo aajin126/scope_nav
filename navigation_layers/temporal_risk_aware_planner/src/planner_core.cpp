@@ -880,8 +880,8 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
     int goal_line_half_length_cells =
         std::min(
-            static_cast<int>(1.0 * dist_to_goal / resolution),
-            static_cast<int>(0.36 * map_size)
+            static_cast<int>(0.2 * dist_to_goal / resolution),
+            static_cast<int>(0.2 * map_size)
         ) - 2;
 
     goal_line_half_length_cells = std::max(1, goal_line_half_length_cells);
@@ -976,7 +976,7 @@ void TemporalRiskAwarePlanner::createLocalGoalLine(const geometry_msgs::PoseStam
 
     // 5. Uniformly sample endpoints based on segment length from each obstacle-free safe segment
     const int min_segment_size = 6;
-    const int cells_per_sample = 20;
+    const int cells_per_sample = 10;
     const int max_samples_per_segment = 4;
 
     for (const auto& segment : safe_segments) {

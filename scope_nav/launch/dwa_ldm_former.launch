@@ -22,4 +22,7 @@
   <!-- Rviz -->
   <include file="$(find scope_nav)/launch/view_navigation.launch" if="$(arg rviz)"/>
 
+  <include file="$(find scope_nav)/launch/bag.launch">
+  </include>
+
 </launch>

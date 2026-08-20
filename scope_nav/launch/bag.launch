@@ -1,8 +1,8 @@
 <!-- -->
 <launch>
-    <arg name="bag_path" default="/tmp/trial.bag"/>
+    <arg name="bag_path" default="/home/glab/bag/trial"/>
     <node pkg="rosbag" type="record" name="rosbag" 
-    args="-O $(arg bag_path)
+    args="--output-prefix=$(arg bag_path)
 
 /camera/color/image_raw
 /former_base_controller/cmd_vel
@@ -11,14 +11,30 @@
 /imu/data
 /initialpose
 /joint_states
+/joy
+/joy/set_feedback
 /left_ultrasonic
 /local_map
 /local_map_updates
+/move_base/DWAPlannerROS/cost_cloud
 /move_base/DWAPlannerROS/global_plan
 /move_base/DWAPlannerROS/local_plan
-/move_base/NavfnROS/plan
+/move_base/DWAPlannerROS/parameter_descriptions
+/move_base/DWAPlannerROS/parameter_updates
+/move_base/DWAPlannerROS/trajectory_cloud
+/move_base/TemporalRiskAwarePlanner/nearest_marker
+/move_base/TemporalRiskAwarePlanner/parameter_descriptions
+/move_base/TemporalRiskAwarePlanner/parameter_updates
+/move_base/TemporalRiskAwarePlanner/plan
+/move_base/TemporalRiskAwarePlanner/planning_debug_markers
+/move_base/TemporalRiskAwarePlanner/planning_time_ms
+/move_base/TemporalRiskAwarePlanner/planning_track_markers
+/move_base/TemporalRiskAwarePlanner/potential
+/move_base/TemporalRiskAwarePlanner/subgoal_marker
+/move_base/cancel
 /move_base/cmd_vel
 /move_base/current_goal
+/move_base/feedback
 /move_base/global_costmap/costmap
 /move_base/global_costmap/costmap_updates
 /move_base/global_costmap/footprint
@@ -27,15 +43,11 @@
 /move_base/local_costmap/costmap_updates
 /move_base/local_costmap/footprint
 /move_base/local_costmap/inflation_layer/parameter_descriptions
-/move_base/local_costmap/inflation_layer/parameter_updates
-/move_base/local_costmap/obstacle_layer/clearing_endpoints
-/move_base/local_costmap/obstacle_layer/parameter_descriptions
-/move_base/local_costmap/obstacle_layer/parameter_updates
-/move_base/local_costmap/parameter_descriptions
-/move_base/local_costmap/parameter_updates
-/move_base/local_costmap/scope_prediction_layer/parameter_descriptions
-/move_base/local_costmap/scope_prediction_layer/parameter_updates
+/move_base/parameter_descriptions
+/move_base/parameter_updates
 /move_base/recovery_status
+/move_base/result
+/move_base/status
 /move_base_simple/goal
 /odometry/filtered
 /prediction_img
@@ -48,9 +60,13 @@
 /scope_prediction
 /scope_uncertainty
 /set_pose
+/sick_tim_node/parameter_descriptions
+/sick_tim_node/parameter_updates
+/teleop/cmd_vel
 /temporal_grid_local_map
 /tf
 /tf_static
+
     "
     />
 

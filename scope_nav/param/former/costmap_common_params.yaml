@@ -10,7 +10,7 @@ publish_voxel_map: false
 transform_tolerance: 0.5
 meter_scoring: true
 
-footprint: [[-0.17, -0.17], [-0.17, 0.17], [0.17, 0.17], [0.17, -0.17]]
+footprint: [[-0.14, -0.14], [-0.14, 0.14], [0.14, 0.14], [0.14, -0.14]]
 footprint_padding: 0.1
 
 obstacle_layer:
