@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 
 from taming.modules.vqvae.quantize import VectorQuantizer as VectorQuantizer
 
-from distributions.distributions import DiagonalGaussianDistribution
+from modules.diffusionmodules.model import Encoder, Decoder
+from modules.distributions.distributions import DiagonalGaussianDistribution
 from models.convlstm import ConvLSTMCell
 from data.data_preprocessing import preprocess_batch
 
@@ -191,20 +192,17 @@ class VQModel(pl.LightningModule):
                     print(f"{context}: Restored training weights")
 
     def init_from_ckpt(self, path, ignore_keys=list()):
-        sd = torch.load(path, map_location="cpu")
-        if "state_dict" in sd:
-            sd = sd["state_dict"]
+        sd = torch.load(path, map_location="cpu")["state_dict"]
         keys = list(sd.keys())
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print(f"Deleting key {k} from state_dict.")
+                    print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
         print(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
         if len(missing) > 0:
             print(f"Missing Keys: {missing}")
-        if len(unexpected) > 0:
             print(f"Unexpected Keys: {unexpected}")
 
     def on_train_batch_end(self, *args, **kwargs):
@@ -429,14 +427,12 @@ class AutoencoderKL(pl.LightningModule):
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
 
     def init_from_ckpt(self, path, ignore_keys=list()):
-        sd = torch.load(path, map_location="cpu")
-        if "state_dict" in sd:
-            sd = sd["state_dict"]
+        sd = torch.load(path, map_location="cpu")["state_dict"]
         keys = list(sd.keys())
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print(f"Deleting key {k} from state_dict.")
+                    print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         self.load_state_dict(sd, strict=False)
         print(f"Restored from {path}")

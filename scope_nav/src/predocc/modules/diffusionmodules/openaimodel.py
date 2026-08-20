@@ -4,11 +4,11 @@ import math
 from typing import Iterable
 
 import numpy as np
-import torch
+import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 
-from diffusionmodules.util import (
+from modules.diffusionmodules.util import (
     checkpoint,
     conv_nd,
     linear,
@@ -17,7 +17,7 @@ from diffusionmodules.util import (
     normalization,
     timestep_embedding,
 )
-from attention import SpatialTransformer
+from modules.attention import SpatialTransformer
 
 
 # dummy replace
@@ -42,7 +42,7 @@ class AttentionPool2d(nn.Module):
         output_dim: int = None,
     ):
         super().__init__()
-        self.positional_embedding = nn.Parameter(torch.randn(embed_dim, spacial_dim ** 2 + 1) / embed_dim ** 0.5)
+        self.positional_embedding = nn.Parameter(th.randn(embed_dim, spacial_dim ** 2 + 1) / embed_dim ** 0.5)
         self.qkv_proj = conv_nd(1, embed_dim, 3 * embed_dim, 1)
         self.c_proj = conv_nd(1, embed_dim, output_dim or embed_dim, 1)
         self.num_heads = embed_dim // num_heads_channels
@@ -51,7 +51,7 @@ class AttentionPool2d(nn.Module):
     def forward(self, x):
         b, c, *_spatial = x.shape
         x = x.reshape(b, c, -1)  # NC(HW)
-        x = torch.cat([x.mean(dim=-1, keepdim=True), x], dim=-1)  # NC(HW+1)
+        x = th.cat([x.mean(dim=-1, keepdim=True), x], dim=-1)  # NC(HW+1)
         x = x + self.positional_embedding[None, :, :].to(x.dtype)  # NC(HW+1)
         x = self.qkv_proj(x)
         x = self.attention(x)
@@ -159,41 +159,6 @@ class Downsample(nn.Module):
         assert x.shape[1] == self.channels
         return self.op(x)
 
-class TemporalShift(nn.Module):
-    def __init__(self, net, num_frames, fold_div=4):
-        super().__init__()
-        self.net = net 
-        self.num_frames = num_frames
-        self.fold_div = fold_div
-
-    def shift(self, x):
-        # x: (B*T, C, H, W)
-        bt, c, h, w = x.shape
-        assert bt % self.num_frames == 0
-        b = bt // self.num_frames
-
-        x = x.view(b, self.num_frames, c, h, w)
-        out = torch.zeros_like(x)
-
-        fold = c // self.fold_div
-        if fold == 0:
-            return x.view(bt, c, h, w)
-
-        # past -> current
-        out[:, 1:, :fold] = x[:, :-1, :fold]
-
-        # future -> current
-        out[:, :-1, fold:2*fold] = x[:, 1:, fold:2*fold]
-
-        # rest keep
-        out[:, :, 2*fold:] = x[:, :, 2*fold:]
-
-        return out.view(bt, c, h, w)
-
-    def forward(self, x):
-        x = self.shift(x)
-        return self.net(x)
-
 
 class ResBlock(TimestepBlock):
     """
@@ -209,9 +174,6 @@ class ResBlock(TimestepBlock):
     :param use_checkpoint: if True, use gradient checkpointing on this module.
     :param up: if True, use this block for upsampling.
     :param down: if True, use this block for downsampling.
-    :param use_temporal_shift: if True, apply temporal shift to the input.
-    :param num_frames: the number of frames for temporal shift.
-    :param shift_fold_div: the fold division for temporal shift.
     """
 
     def __init__(
@@ -226,9 +188,6 @@ class ResBlock(TimestepBlock):
         use_checkpoint=False,
         up=False,
         down=False,
-        use_temporal_shift=False,
-        num_frames=None,
-        shift_fold_div=4,
     ):
         super().__init__()
         self.channels = channels
@@ -238,24 +197,12 @@ class ResBlock(TimestepBlock):
         self.use_conv = use_conv
         self.use_checkpoint = use_checkpoint
         self.use_scale_shift_norm = use_scale_shift_norm
-        self.use_temporal_shift = use_temporal_shift
-        self.num_frames = num_frames
-        self.shift_fold_div = shift_fold_div
 
         self.in_layers = nn.Sequential(
             normalization(channels),
             nn.SiLU(),
             conv_nd(dims, channels, self.out_channels, 3, padding=1),
         )
-
-        if self.use_temporal_shift:
-            assert dims == 2
-            assert num_frames is not None
-            self.in_layers[-1] = TemporalShift(
-                self.in_layers[-1],
-                num_frames=num_frames,
-                fold_div=shift_fold_div,
-            )
 
         self.updown = up or down
 
@@ -314,14 +261,12 @@ class ResBlock(TimestepBlock):
             h = in_conv(h)
         else:
             h = self.in_layers(x)
-
         emb_out = self.emb_layers(emb).type(h.dtype)
-        
         while len(emb_out.shape) < len(h.shape):
             emb_out = emb_out[..., None]
         if self.use_scale_shift_norm:
             out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
-            scale, shift = torch.chunk(emb_out, 2, dim=1)
+            scale, shift = th.chunk(emb_out, 2, dim=1)
             h = out_norm(h) * (1 + scale) + shift
             h = out_rest(h)
         else:
@@ -396,7 +341,7 @@ def count_flops_attn(model, _x, y):
     # The first computes the weight matrix, the second computes
     # the combination of the value vectors.
     matmul_ops = 2 * b * (num_spatial ** 2) * c
-    model.total_ops += torch.DoubleTensor([matmul_ops])
+    model.total_ops += th.DoubleTensor([matmul_ops])
 
 
 class QKVAttentionLegacy(nn.Module):
@@ -419,11 +364,11 @@ class QKVAttentionLegacy(nn.Module):
         ch = width // (3 * self.n_heads)
         q, k, v = qkv.reshape(bs * self.n_heads, ch * 3, length).split(ch, dim=1)
         scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = torch.einsum(
+        weight = th.einsum(
             "bct,bcs->bts", q * scale, k * scale
         )  # More stable with f16 than dividing afterwards
-        weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
-        a = torch.einsum("bts,bcs->bct", weight, v)
+        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
+        a = th.einsum("bts,bcs->bct", weight, v)
         return a.reshape(bs, -1, length)
 
     @staticmethod
@@ -451,13 +396,13 @@ class QKVAttention(nn.Module):
         ch = width // (3 * self.n_heads)
         q, k, v = qkv.chunk(3, dim=1)
         scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = torch.einsum(
+        weight = th.einsum(
             "bct,bcs->bts",
             (q * scale).view(bs * self.n_heads, ch, length),
             (k * scale).view(bs * self.n_heads, ch, length),
         )  # More stable with f16 than dividing afterwards
-        weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
-        a = torch.einsum("bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length))
+        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
+        a = th.einsum("bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length))
         return a.reshape(bs, -1, length)
 
     @staticmethod
@@ -521,14 +466,7 @@ class UNetModel(nn.Module):
         context_dim=None,                 # custom transformer support
         n_embed=None,                     # custom support for prediction of discrete ids into codebook of first stage vq model
         legacy=True,
-        use_temporal_shift=False,
-        num_frames=None,
-        shift_fold_div=3,
     ):
-        self.use_temporal_shift = use_temporal_shift
-        self.num_frames = num_frames
-        self.shift_fold_div = shift_fold_div
-
         super().__init__()
         if use_spatial_transformer:
             assert context_dim is not None, 'Fool!! You forgot to include the dimension of your cross-attention conditioning...'
@@ -559,7 +497,7 @@ class UNetModel(nn.Module):
         self.conv_resample = conv_resample
         self.num_classes = num_classes
         self.use_checkpoint = use_checkpoint
-        self.dtype = torch.float16 if use_fp16 else torch.float32
+        self.dtype = th.float16 if use_fp16 else th.float32
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
@@ -597,9 +535,6 @@ class UNetModel(nn.Module):
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
-                        use_temporal_shift=use_temporal_shift,
-                        num_frames=num_frames,
-                        shift_fold_div=shift_fold_div,
                     )
                 ]
                 ch = mult * model_channels
@@ -639,9 +574,6 @@ class UNetModel(nn.Module):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             down=True,
-                            use_temporal_shift=use_temporal_shift,
-                            num_frames=num_frames,
-                            shift_fold_div=shift_fold_div,
                         )
                         if resblock_updown
                         else Downsample(
@@ -670,9 +602,6 @@ class UNetModel(nn.Module):
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
-                use_temporal_shift=use_temporal_shift,
-                num_frames=num_frames,
-                shift_fold_div=shift_fold_div,
             ),
             AttentionBlock(
                 ch,
@@ -690,9 +619,6 @@ class UNetModel(nn.Module):
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
-                use_temporal_shift=use_temporal_shift,
-                num_frames=num_frames,
-                shift_fold_div=shift_fold_div,
             ),
         )
         self._feature_size += ch
@@ -710,9 +636,6 @@ class UNetModel(nn.Module):
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
-                        use_temporal_shift=use_temporal_shift,
-                        num_frames=num_frames,
-                        shift_fold_div=shift_fold_div,
                     )
                 ]
                 ch = model_channels * mult
@@ -748,9 +671,6 @@ class UNetModel(nn.Module):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             up=True,
-                            use_temporal_shift=use_temporal_shift,
-                            num_frames=num_frames,
-                            shift_fold_div=shift_fold_div,
                         )
                         if resblock_updown
                         else Upsample(ch, conv_resample, dims=dims, out_channels=out_ch)
@@ -813,7 +733,7 @@ class UNetModel(nn.Module):
             hs.append(h)
         h = self.middle_block(h, emb, context)
         for module in self.output_blocks:
-            h = torch.cat([h, hs.pop()], dim=1)
+            h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb, context)
         h = h.type(x.dtype)
         if self.predict_codebook_ids:
@@ -866,7 +786,7 @@ class EncoderUNetModel(nn.Module):
         self.channel_mult = channel_mult
         self.conv_resample = conv_resample
         self.use_checkpoint = use_checkpoint
-        self.dtype = torch.float16 if use_fp16 else torch.float32
+        self.dtype = th.float16 if use_fp16 else th.float32
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
@@ -1033,7 +953,7 @@ class EncoderUNetModel(nn.Module):
         h = self.middle_block(h, emb)
         if self.pool.startswith("spatial"):
             results.append(h.type(x.dtype).mean(dim=(2, 3)))
-            h = torch.cat(results, axis=-1)
+            h = th.cat(results, axis=-1)
             return self.out(h)
         else:
             h = h.type(x.dtype)

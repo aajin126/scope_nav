@@ -15,7 +15,7 @@ model:
     convlstm_hidden_dim: 33
     scale_factor: 0.374106
 
-    first_stage_ckpt_path: "/home/glab/dyna_ws/src/scope_nav/scope_nav/src/model/predocc_diff/ae10.0/model.pth"
+    first_stage_ckpt_path: "./pretrained_models/first_stage_models/AE/v10.0/model.ckpt"
 
     first_stage_config:
       target: models.autoencoder.SequenceAutoencoderKL
@@ -67,8 +67,18 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 1
+    batch_size: 128
     num_workers: 4
+    train:
+      target: data.dataloader.PredOccDataset
+      params:
+        data_root: "../data/OGM-datasets/OGM-Turtlebot2/train/"
+        split: "train"
+    validation:
+      target: data.dataloader.PredOccDataset
+      params:
+        data_root: "../data/OGM-datasets/OGM-Turtlebot2/val/"
+        split: "val"
     test:
       target: data.dataloader.PredOccDataset
       params:
@@ -77,9 +87,13 @@ data:
         
 lightning:
   trainer:
-    max_epochs: 100
+    max_epochs: 80
     check_val_every_n_epoch: 1
 
+    # accelerator: gpu
+    # devices: 2
+    # strategy: ddp_find_unused_parameters_true
+    
   callbacks:
     image_logger:
       target: main.ImageLogger
@@ -91,9 +105,9 @@ lightning:
       params:
         filename: "trainloss-{epoch:06d}"
         monitor: "train/loss_epoch"
-        save_top_k: 5
+        save_top_k: -1
+        every_n_epochs: 10
         save_last: false
-
 
   modelcheckpoint:
     params:
