@@ -25,7 +25,7 @@ import math
 #
 from model import *
 from local_occ_grid_map import LocalMap
-from reproj import reprojection, reprojection_to_map
+from occ_util import reprojection, reprojection_to_map
 import torch
 import threading
 from omegaconf import OmegaConf
